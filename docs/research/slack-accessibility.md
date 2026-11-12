@@ -42,3 +42,14 @@ Escribir requiere que Slack esté al frente.
 | 3 | 1.89 s | 2.14 s |
 
 En frío (un proceso por petición): ~2 s.
+
+## Evaluación de modelos (prompt en vivo, 2026-11-12)
+
+Set de 30 frases (`Tests/InkyCoreTests/Fixtures/eval-sentences.json`): 20 con errores típicos de hispanohablantes (27 errores esperados) y 10 correctas. Escrito a mano, sesgo posible; repetir con frases reales.
+
+| Modelo | Errores detectados | Correcciones de más | Respuestas inservibles | Promedio |
+|---|---|---|---|---|
+| Claude Haiku (`claude -p`, effort low) | 27/27 (100%) | 0 | 0/30 | 2.25 s |
+| Gemma 3 4B (Ollama, local) | 14/27 (51%) | 11 | 5/30 | 3.14 s |
+
+Gemma 3 4B no detecta los errores de transferencia del español ("I am agree", "Do you can", "discuss about") y es más lento en este Mac.
