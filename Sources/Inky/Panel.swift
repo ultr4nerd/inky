@@ -22,6 +22,10 @@ final class PanelModel: ObservableObject {
     @Published var hovered: Int?
     @Published var showCustom = false
     @Published var customInstruction = ""
+    /// Drives the grow-in / shrink-out of the whole panel.
+    @Published var shown = false
+    /// The panel sits above the field and grows up from it (from the handle's corner).
+    @Published var growsUp = true
 
     var onApply: () -> Void = {}
     var onCancel: () -> Void = {}
@@ -55,25 +59,47 @@ final class PanelModel: ObservableObject {
     }
 }
 
-/// Inky's visual language: one ink accent for the UI, and a color per kind of suggestion.
+/// Inky's visual language: black ink on paper for the UI (it follows light/dark mode),
+/// and an ink color per kind of suggestion, the only color on screen.
 enum Ink {
-    static let accent = Color(red: 0.31, green: 0.49, blue: 1.0)
+    /// Text-colored ink: black in light mode, paper in dark mode.
+    static let ink = Color.primary
+    /// What goes on top of `ink` (button labels, the mark).
+    static let paper = Color(nsColor: .windowBackgroundColor)
+
+    private static func dynamic(_ light: (CGFloat, CGFloat, CGFloat), _ dark: (CGFloat, CGFloat, CGFloat)) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let c = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1)
+        }
+    }
+
+    private static let red = dynamic((0.84, 0.27, 0.18), (0.94, 0.42, 0.32))
+    private static let blue = dynamic((0.18, 0.39, 0.88), (0.36, 0.55, 1.0))
+    private static let green = dynamic((0.17, 0.54, 0.37), (0.25, 0.70, 0.49))
+    private static let violet = dynamic((0.46, 0.32, 0.79), (0.61, 0.49, 0.94))
 
     static func nsColor(_ c: EditCategory) -> NSColor {
         switch c {
-        case .correctness: NSColor(red: 0.96, green: 0.36, blue: 0.38, alpha: 1)
-        case .clarity: NSColor(red: 0.31, green: 0.49, blue: 1.0, alpha: 1)
-        case .engagement: NSColor(red: 0.20, green: 0.74, blue: 0.47, alpha: 1)
-        case .tone: NSColor(red: 0.66, green: 0.45, blue: 0.98, alpha: 1)
+        case .correctness: red
+        case .clarity: blue
+        case .engagement: green
+        case .tone: violet
         }
     }
 
     static func color(_ c: EditCategory) -> Color { Color(nsColor: nsColor(c)) }
+
+    /// Springs used everywhere, matching the motion prototype.
+    static let pop = Animation.spring(duration: 0.32, bounce: 0.25)
+    static let settle = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.4)
 }
 
 struct PanelView: View {
     @ObservedObject var model: PanelModel
     @FocusState private var customFocused: Bool
+    @Namespace private var pillSpace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -85,7 +111,9 @@ struct PanelView: View {
         .padding(16)
         .frame(width: 460, alignment: .leading)
         .background { background }
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.08)) }
+        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.primary.opacity(0.08)) }
+        .scaleEffect(model.shown || reduceMotion ? 1 : 0.6, anchor: model.growsUp ? .bottomLeading : .topLeading)
+        .opacity(model.shown ? 1 : 0)
         .animation(.smooth(duration: 0.22), value: model.state)
         .animation(.smooth(duration: 0.18), value: model.showExplanations)
         .animation(.smooth(duration: 0.18), value: model.showCustom)
@@ -104,10 +132,10 @@ struct PanelView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Brand.mark(14)
-                .foregroundStyle(.white)
+            Brand.mark(13)
+                .foregroundStyle(Ink.paper)
                 .frame(width: 20, height: 20)
-                .background(Ink.accent, in: RoundedRectangle(cornerRadius: 6))
+                .background(Ink.ink, in: RoundedRectangle(cornerRadius: 6))
             Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 8)
             modePicker
@@ -145,6 +173,7 @@ struct PanelView: View {
         }
         .padding(2)
         .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+        .animation(Ink.pop, value: model.mode)
     }
 
     private func pill(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
@@ -161,8 +190,10 @@ struct PanelView: View {
         .padding(.horizontal, 9).padding(.vertical, 3)
         .background {
             if on {
+                // One pill that slides between modes.
                 RoundedRectangle(cornerRadius: 6).fill(.background.opacity(0.9))
                     .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+                    .matchedGeometryEffect(id: "pill", in: pillSpace)
             }
         }
         .contentShape(Rectangle())
@@ -170,7 +201,7 @@ struct PanelView: View {
 
     private var customField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "sparkles").foregroundStyle(Ink.accent)
+            Image(systemName: "sparkles").foregroundStyle(.secondary)
             TextField(model.t("Ej. que suene menos agresivo", "e.g. make it sound less pushy"), text: $model.customInstruction)
                 .textFieldStyle(.plain)
                 .focused($customFocused)
@@ -191,16 +222,21 @@ struct PanelView: View {
     @ViewBuilder private var content: some View {
         switch model.state {
         case .loading:
-            HStack(alignment: .top, spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text(model.original).font(.system(size: 15)).foregroundStyle(.tertiary).lineLimit(4)
-            }
-            .transition(.opacity)
+            // The text being checked, with a line of ink sweeping across it.
+            Text(model.original)
+                .font(.system(size: 16, design: .serif))
+                .lineSpacing(3)
+                .foregroundStyle(.tertiary)
+                .lineLimit(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(Shimmer(on: !reduceMotion))
+                .transition(.opacity)
         case .noChanges:
             VStack(alignment: .leading, spacing: 6) {
                 Label(model.t("Se ve bien", "Looks good"), systemImage: "checkmark.circle.fill")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Ink.accent)
+                    .foregroundStyle(Ink.ink)
+                    .symbolEffect(.bounce, options: .nonRepeating, value: model.state)
                 toneLine
             }
             .transition(.opacity)
@@ -213,7 +249,7 @@ struct PanelView: View {
             VStack(alignment: .leading, spacing: 12) {
                 ScrollView {
                     Text(corrected)
-                        .font(.system(size: 16))
+                        .font(.system(size: 16, design: .serif))
                         .lineSpacing(3)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -226,7 +262,9 @@ struct PanelView: View {
 
                 if model.showExplanations {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(sortedEdits, id: \.range.location) { e in note(e) }
+                        ForEach(Array(sortedEdits.enumerated()), id: \.element.range.location) { i, e in
+                            note(e).modifier(Rise(delay: 0.12 + Double(i) * 0.08, on: !reduceMotion))
+                        }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -301,11 +339,11 @@ struct PanelView: View {
                 Button { model.onApply() } label: {
                     Text(model.t("Aplicar ↩", "Apply ↩"))
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Ink.paper)
                         .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(Ink.accent, in: RoundedRectangle(cornerRadius: 8))
+                        .background(Ink.ink, in: RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressStyle())
             }
         }
     }
@@ -345,6 +383,40 @@ struct PanelView: View {
     }
 }
 
+/// A soft band of ink that sweeps across the content while Inky is checking.
+private struct Shimmer: ViewModifier {
+    var on: Bool
+    @State private var phase: CGFloat = 0
+    func body(content: Content) -> some View {
+        content.overlay {
+            if on {
+                GeometryReader { g in
+                    LinearGradient(colors: [.clear, Ink.ink.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: g.size.width * 0.45)
+                        .offset(x: -g.size.width * 0.45 + phase * g.size.width * 1.45)
+                }
+                .mask(content)
+                .onAppear {
+                    withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) { phase = 1 }
+                }
+            }
+        }
+    }
+}
+
+/// Fades and lifts a row into place after `delay`, so notes arrive one by one.
+private struct Rise: ViewModifier {
+    var delay: Double
+    var on: Bool
+    @State private var up = false
+    func body(content: Content) -> some View {
+        content
+            .opacity(up || !on ? 1 : 0)
+            .offset(y: up || !on ? 0 : 6)
+            .onAppear { withAnimation(Ink.settle.delay(delay)) { up = true } }
+    }
+}
+
 /// Floating panel that takes keyboard input without activating Inky.
 final class InkyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -361,6 +433,8 @@ final class PanelController {
     private var changes: AnyCancellable?
     /// Above the field the panel grows upwards (bottom edge fixed); below it grows down.
     private var growsUp = true
+    /// Bumped on every show/hide so a late hide doesn't close a panel shown again.
+    private var generation = 0
 
     var onKey: ((NSEvent) -> Bool)?
     var isVisible: Bool { panel.isVisible }
@@ -418,9 +492,14 @@ final class PanelController {
             origin = NSPoint(x: m.x - size.width / 2, y: m.y + 16)
             growsUp = true
         }
+        generation += 1
+        let wasVisible = panel.isVisible
+        model.growsUp = growsUp
+        if !wasVisible { model.shown = false }
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
+        if !model.shown { DispatchQueue.main.async { [model] in withAnimation(Ink.pop) { model.shown = true } } }
         Log.info("panel shown at \(panel.frame)")
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -430,9 +509,23 @@ final class PanelController {
         }
     }
 
-    func hide() {
-        panel.orderOut(nil)
+    func hide(animated: Bool = true) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        guard panel.isVisible else { return }
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            generation += 1
+            model.shown = false
+            panel.orderOut(nil)
+            return
+        }
+        // Shrink back toward the field, then take the window away (unless shown again meanwhile).
+        generation += 1
+        let g = generation
+        withAnimation(.easeIn(duration: 0.14)) { model.shown = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, self.generation == g else { return }
+            self.panel.orderOut(nil)
+        }
     }
 }

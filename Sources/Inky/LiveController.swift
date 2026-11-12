@@ -176,11 +176,15 @@ final class LiveController {
         guard !planned.isEmpty else { current = nil; overlay.hide(); card.hide(); return }
         let rects = TextAccess.rects(for: planned, in: snap)
         current = (snap, planned, rects, sentenceOf)
-        overlay.show(planned.compactMap { e in rects[e.range.location].map { (id: e.range.location, axRect: $0, color: Ink.nsColor(e.category)) } })
+        let text = snap.fieldText as NSString
+        overlay.show(planned.compactMap { e in
+            rects[e.range.location].map { (id: e.range.location, key: text.substring(with: e.range) + "→" + e.replacement,
+                                           axRect: $0, color: Ink.nsColor(e.category)) }
+        })
     }
 
     private func clearMarks() {
-        overlay.hide()
+        overlay.hide(forget: true)
         card.hide()
         current = nil
         renderedValue = nil
@@ -210,6 +214,8 @@ final class LiveController {
         guard let cur = current, let key = cur.sentenceOf[e.range.location] else { return }
         card.hide()
         overlay.hide()
+        if let rect = cur.rects[e.range.location] { UnderlineOverlay.splash(at: rect, color: Ink.nsColor(e.category)) }
+        let wasLast = cur.edits.count == 1
         let result = EditPlanner.apply([e], to: cur.snap.fieldText)
         // The fixed sentence keeps its other suggestions without asking the model again.
         let removed = (cur.snap.fieldText as NSString).substring(with: e.range)
@@ -221,6 +227,7 @@ final class LiveController {
         Task { @MainActor in
             let ok = await TextAccess.apply([e], to: cur.snap, result: result)
             Log.info("live apply \(ok ? "ok" : "mismatch")")
+            if ok && wasLast { handle.model.flashDone() }
         }
     }
 

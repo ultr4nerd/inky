@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             While it's on, every sentence you type in Slack is sent to your AI provider (\(currentProvider().displayName)) \
             after you pause, without pressing anything. Check that this is OK with your company's policies.
 
-            The handle next to the text field turns blue while live checking is on.
+            The ink drop next to the text field turns dark while live checking is on.
             """
             alert.addButton(withTitle: "Turn On")
             alert.addButton(withTitle: "Cancel")
@@ -201,10 +201,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.show(anchor: CGRect(x: 429, y: 829, width: 1061, height: 34))
     }
 
-    private func hidePanel() {
+    /// Not animated when Inky is about to type into the app: the panel must stop being the
+    /// key window right away so no keystroke lands in it.
+    private func hidePanel(animated: Bool = true) {
         live.suspended = false
-        overlay.hide()
-        panel.hide()
+        overlay.hide(forget: true)
+        panel.hide(animated: animated)
         panel.model.showCustom = false
     }
 
@@ -256,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.state = .loading
         model.detectedTone = nil
         model.hovered = nil
-        overlay.hide()
+        overlay.hide(forget: true)
         let prompt = PromptBuilder(mode: model.mode, tone: model.tone, explanationLanguage: Prefs.explanationLang,
                                    customInstruction: model.customInstruction)
         let masked = MentionMasker.mask(snap.targetText, protected: snap.protected)
@@ -297,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let edits = panel.model.edits
         let result = EditPlanner.apply(edits, to: snap.targetText)
         let mode = panel.model.mode
-        hidePanel()
+        hidePanel(animated: false)
         Task { @MainActor in
             let ok = await TextAccess.apply(edits, to: snap, result: result)
             Log.info("apply \(ok ? "ok" : "mismatch")")
