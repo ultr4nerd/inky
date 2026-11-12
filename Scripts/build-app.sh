@@ -11,6 +11,13 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp "$(swift build -c "$CONFIG" --show-bin-path)/Inky" "$APP/Contents/MacOS/Inky"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Resources"
+cp Resources/InkyGlyph.pdf "$APP/Contents/Resources/"
+# App icon: compile the Icon Composer file (Liquid Glass on macOS 26, .icns fallback for 15).
+xcrun actool Design/Inky.icon --compile "$APP/Contents/Resources" --app-icon Inky \
+  --platform macosx --minimum-deployment-target 15.0 \
+  --output-partial-info-plist "$APP/icon.plist" >/dev/null
+rm "$APP/icon.plist"
 # Identity: $INKY_SIGN_IDENTITY, else .signing-identity (gitignored, a SHA-1), else the first
 # Developer ID / Apple Development identity that isn't revoked. Signing with a revoked
 # certificate makes macOS flag the app as malware and move it to the Trash.

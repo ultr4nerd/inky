@@ -72,7 +72,7 @@ private struct HandleView: View {
                             if model.count > 0 && !hover {
                                 Text("\(model.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
                             } else {
-                                Image(systemName: "pencil.tip").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                                Brand.mark(13).foregroundStyle(.white)
                             }
                         }
                         .transition(.scale.combined(with: .opacity))

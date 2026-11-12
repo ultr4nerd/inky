@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setUpMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "pencil.tip", accessibilityDescription: "Inky")
+        item.button?.image = Brand.glyph
         let menu = NSMenu()
         menu.addItem(withTitle: "Check text  (⌃⌥I)", action: #selector(checkFromMenu), keyEquivalent: "").target = self
         let status = NSMenuItem(title: "", action: #selector(openAccessibilitySettings), keyEquivalent: "")

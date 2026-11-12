@@ -104,8 +104,7 @@ struct PanelView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "pencil.tip")
-                .font(.system(size: 10, weight: .bold))
+            Brand.mark(14)
                 .foregroundStyle(.white)
                 .frame(width: 20, height: 20)
                 .background(Ink.accent, in: RoundedRectangle(cornerRadius: 6))
