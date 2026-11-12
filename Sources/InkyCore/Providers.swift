@@ -72,6 +72,10 @@ public actor ClaudeCodeProvider: Provider {
     private var currentSystem = ""
     /// `total_cost_usd` is cumulative per session; keep the last value to record deltas.
     private var sessionCost = 0.0
+    /// An idle `claude` process uses ~250 MB, so stop it after this long without requests.
+    private let idleTimeout: Duration = .seconds(300)
+    private var lastUse = ContinuousClock.now
+    private var idleTask: Task<Void, Never>?
 
     public init(model: String = "haiku", executable: String? = nil, maxRequests: Int = 5, purpose: String = "panel") {
         self.model = model
@@ -84,6 +88,7 @@ public actor ClaudeCodeProvider: Provider {
     /// Starts the process ahead of the first hotkey press.
     public func warmUp(system: String) {
         if process == nil { try? start(system: system) }
+        scheduleIdleStop()
     }
 
     private var busy = false
@@ -101,7 +106,10 @@ public actor ClaudeCodeProvider: Provider {
 
     public func complete(system: String, user: String) async throws -> String {
         await acquire()
-        defer { release() }
+        defer {
+            release()
+            scheduleIdleStop()
+        }
         if process?.isRunning != true || requests >= maxRequests || system != currentSystem {
             stop()
             try start(system: system)
@@ -139,6 +147,22 @@ public actor ClaudeCodeProvider: Provider {
             stop()
             throw error
         }
+    }
+
+    private func scheduleIdleStop() {
+        lastUse = .now
+        idleTask?.cancel()
+        let timeout = idleTimeout
+        idleTask = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            await self?.stopIfIdle()
+        }
+    }
+
+    private func stopIfIdle() {
+        guard !busy, ContinuousClock.now - lastUse >= idleTimeout, process != nil else { return }
+        stop()
     }
 
     private func start(system: String) throws {

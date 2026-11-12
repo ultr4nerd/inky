@@ -7,7 +7,7 @@ import InkyCore
 /// underline opens a small card to apply or dismiss that fix.
 @MainActor
 final class LiveController {
-    static let enabledKey = "liveEnabled"
+    nonisolated static let enabledKey = "liveEnabled"
     static let apps: Set<String> = ["com.tinyspeck.slackmacgap"]
     static let pause: TimeInterval = 1.2
 

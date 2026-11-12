@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Prefs.registerDefaults()
+        LoginItem.setUpIfInstalled()
         setUpMenu()
         hotKey = HotKey { [weak self] in Task { @MainActor in self?.hotKeyPressed() } }
         panel.onKey = { [weak self] in self?.handleKey($0) ?? false }

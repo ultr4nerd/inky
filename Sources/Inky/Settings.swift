@@ -93,6 +93,7 @@ struct SettingsView: View {
     @AppStorage(Prefs.explanationLanguage) private var language = ExplanationLanguage.spanish.rawValue
     @AppStorage(Prefs.historyEnabled) private var history = false
     @State private var apiKey = Keychain.apiKey ?? ""
+    @State private var openAtLogin = LoginItem.isEnabled
 
     var body: some View {
         Form {
@@ -130,6 +131,10 @@ struct SettingsView: View {
                     }
                     Button("Clear history", role: .destructive) { HistoryStore.clear() }
                 }
+            }
+            Section("General") {
+                Toggle("Open Inky at login", isOn: $openAtLogin)
+                    .onChange(of: openAtLogin) { _, on in LoginItem.set(on) }
             }
             Section("Shortcut") {
                 LabeledContent("Check text", value: "⌃⌥I")

@@ -4,12 +4,13 @@ Open source AI writing assistant for macOS. Fix and polish what you write in any
 
 > Early development. See [docs/SPEC.md](docs/SPEC.md) for the Phase 1 plan and [docs/research](docs/research) for what we've validated.
 
-## Build
+## Install
 
 ```sh
-Scripts/build-app.sh
-open build/Inky.app
+Scripts/install.sh        # release build → ~/Applications/Inky.app, opens at login
 ```
+
+For development: `Scripts/build-app.sh && open build/Inky.app`.
 
 Requires macOS 15+, Xcode 26+, and the Accessibility permission.
 
