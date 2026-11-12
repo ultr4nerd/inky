@@ -1,0 +1,316 @@
+import AppKit
+import ApplicationServices
+import Carbon.HIToolbox
+import InkyCore
+import SwiftUI
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem?
+    private var hotKey: HotKey?
+    private let panel = PanelController()
+    private let overlay = UnderlineOverlay()
+    private let live = LiveController()
+    private var settingsWindow: NSWindow?
+
+    private var provider: Provider?
+    private var providerSignature = ""
+    private var snapshot: FieldSnapshot?
+    private var task: Task<Void, Never>?
+    private var applying = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Prefs.registerDefaults()
+        setUpMenu()
+        hotKey = HotKey { [weak self] in Task { @MainActor in self?.hotKeyPressed() } }
+        panel.onKey = { [weak self] in self?.handleKey($0) ?? false }
+        panel.model.onApply = { [weak self] in self?.applyResult() }
+        panel.model.onCancel = { [weak self] in self?.close() }
+        live.handle.onClick = { [weak self] in self?.hotKeyPressed() }
+        live.start()
+        panel.model.onHover = { [weak self] id in self?.overlay.highlight(id) }
+        overlay.onHover = { [weak self] id in self?.panel.model.hovered = id }
+        panel.model.onMode = { [weak self] m in
+            guard let self, self.snapshot != nil, m != self.panel.model.mode || m == .custom else { return }
+            self.panel.model.mode = m
+            self.run()
+        }
+        Log.info("launched; trusted=\(AXIsProcessTrusted()) hotkey=\(hotKey?.mechanism ?? "none")")
+        if !AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) {
+            NSLog("Inky: waiting for Accessibility permission")
+        }
+        // The panel belongs to the field it was opened for: close it if the user switches apps.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            MainActor.assumeIsolated {
+                guard let self, self.panel.isVisible, !self.applying,
+                      app?.processIdentifier != self.snapshot?.app.processIdentifier,
+                      app?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+                self.task?.cancel()
+                self.hidePanel()
+            }
+        }
+        if CommandLine.arguments.contains("--demo-panel") { showDemoPanel() }
+        if CommandLine.arguments.contains("--test-underlines") { testUnderlines() }
+        // Start `claude` now so the first check is fast.
+        if let claude = currentProvider() as? ClaudeCodeProvider {
+            Task { await claude.warmUp(system: PromptBuilder.system) }
+        }
+    }
+
+    // MARK: Menu
+
+    private func setUpMenu() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "pencil.tip", accessibilityDescription: "Inky")
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Check text  (⌃⌥I)", action: #selector(checkFromMenu), keyEquivalent: "").target = self
+        let status = NSMenuItem(title: "", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        status.target = self
+        status.tag = 99
+        menu.addItem(status)
+        let liveItem = NSMenuItem(title: "Live checking in Slack", action: #selector(toggleLive), keyEquivalent: "")
+        liveItem.target = self
+        liveItem.tag = 98
+        menu.addItem(liveItem)
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "Quit Inky", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.delegate = self
+        item.menu = menu
+        statusItem = item
+    }
+
+    @objc private func openAccessibilitySettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
+
+    @objc private func toggleLive() {
+        let d = UserDefaults.standard
+        d.set(!d.bool(forKey: LiveController.enabledKey), forKey: LiveController.enabledKey)
+    }
+
+    @objc private func checkFromMenu() { hotKeyPressed() }
+
+    @objc private func openSettings() {
+        if settingsWindow == nil {
+            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            w.title = "Inky Settings"
+            w.styleMask = [.titled, .closable]
+            w.isReleasedWhenClosed = false
+            settingsWindow = w
+        }
+        NSApp.activate()
+        settingsWindow?.center()
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Debug: underline the first two words of Slack's focused composer for 8 s and log the rects.
+    private func testUnderlines() {
+        guard let slack = NSRunningApplication.runningApplications(withBundleIdentifier: "com.tinyspeck.slackmacgap").first else { return }
+        let appEl = AXUIElementCreateApplication(slack.processIdentifier)
+        AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        var found: AXUIElement?
+        func walk(_ e: AXUIElement, _ d: Int) {
+            if d > 40 || found != nil { return }
+            if TextAccess.attr(e, kAXRoleAttribute) as? String == "AXTextArea", TextAccess.attr(e, kAXFocusedAttribute) as? Bool == true { found = e; return }
+            for c in (TextAccess.attr(e, kAXChildrenAttribute) as? [AXUIElement]) ?? [] { walk(c, d + 1) }
+        }
+        if let w = TextAccess.attr(appEl, kAXFocusedWindowAttribute) { walk(w as! AXUIElement, 0) }
+        guard let el = found, let value = TextAccess.attr(el, kAXValueAttribute) as? String else { Log.info("test: no field"); return }
+        let ns = value as NSString
+        let words = value.split(separator: " ").prefix(4).map(String.init)
+        let edits = words.enumerated().compactMap { i, w -> PlannedEdit? in
+            let r = ns.range(of: w); guard r.location != NSNotFound, i % 2 == 0 || i == 3 else { return nil }
+            return PlannedEdit(range: r, replacement: w, explanation: "", category: EditCategory.allCases[i % 4])
+        }
+        let snap = FieldSnapshot(app: slack, element: el, fieldText: value, target: NSRange(location: 0, length: ns.length),
+                                 protected: [], viaClipboard: false, anchor: nil)
+        let rects = TextAccess.rects(for: edits, in: snap)
+        Log.info("test underlines: \(rects.count)/\(edits.count) \(rects.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" })")
+        overlay.show(edits.compactMap { e in rects[e.range.location].map { (id: e.range.location, axRect: $0, color: Ink.nsColor(e.category)) } })
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.overlay.hide() }
+    }
+
+    /// Debug: `Inky --demo-panel` shows a sample result so the panel can be checked visually.
+    private func showDemoPanel() {
+        let m = panel.model
+        m.original = "this are a test, can you sent me the file?"
+        m.tone = .casualProfessional
+        m.providerName = "Claude Haiku"
+        m.appName = "Slack"
+        m.language = Prefs.explanationLang
+        let ns = m.original as NSString
+        m.edits = [
+            PlannedEdit(range: ns.range(of: "this are"), replacement: "This is", explanation: "«this» es singular, así que va con «is». Y la oración empieza con mayúscula.", category: .correctness),
+            PlannedEdit(range: ns.range(of: "sent"), replacement: "send", explanation: "Después de «can» el verbo va en forma base.", category: .correctness),
+            PlannedEdit(range: ns.range(of: "the file"), replacement: "the file when you get a chance", explanation: "Suaviza la petición para que no suene a orden.", category: .tone),
+        ]
+        m.detectedTone = "directo · un poco brusco"
+        m.state = .result
+        panel.show(anchor: CGRect(x: 429, y: 829, width: 1061, height: 34))
+    }
+
+    private func hidePanel() {
+        live.suspended = false
+        overlay.hide()
+        panel.hide()
+        panel.model.showCustom = false
+    }
+
+    // MARK: Flow
+
+    private func currentProvider() -> Provider {
+        let sig = Prefs.providerSignature
+        if provider == nil || sig != providerSignature {
+            provider = Prefs.makeProvider()
+            providerSignature = sig
+        }
+        return provider!
+    }
+
+    private func hotKeyPressed() {
+        Log.info("hotkey pressed; front=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?") trusted=\(AXIsProcessTrusted()) panelVisible=\(panel.isVisible)")
+        guard !panel.isVisible else { return }
+        guard AXIsProcessTrusted() else {
+            panel.model.state = .error("Inky needs Accessibility permission (System Settings → Privacy & Security → Accessibility).")
+            panel.show(anchor: nil)
+            return
+        }
+        panel.model.mode = .correct
+        panel.model.language = Prefs.explanationLang
+        panel.model.appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+        do {
+            let snap = try TextAccess.read()
+            snapshot = snap
+            Log.info("read ok; chars=\(snap.target.length) protected=\(snap.protected.count) clipboard=\(snap.viaClipboard) anchor=\(snap.anchor.map { "\($0)" } ?? "nil")")
+            panel.model.tone = Tone.default(forBundleID: snap.app.bundleIdentifier)
+            live.suspended = true
+            run()
+            panel.show(anchor: snap.anchor)
+        } catch {
+            snapshot = nil
+            Log.info("read failed: \(error.localizedDescription)")
+            panel.model.state = .error(error.localizedDescription)
+            panel.show(anchor: nil)
+        }
+    }
+
+    private func run() {
+        guard let snap = snapshot else { return }
+        let model = panel.model
+        let provider = currentProvider()
+        model.providerName = provider.displayName
+        model.original = snap.targetText
+        model.edits = []
+        model.state = .loading
+        model.detectedTone = nil
+        model.hovered = nil
+        overlay.hide()
+        let prompt = PromptBuilder(mode: model.mode, tone: model.tone, explanationLanguage: Prefs.explanationLang,
+                                   customInstruction: model.customInstruction)
+        let masked = MentionMasker.mask(snap.targetText, protected: snap.protected)
+
+        task?.cancel()
+        task = Task { @MainActor in
+            do {
+                let raw = try await provider.complete(system: PromptBuilder.system, user: prompt.user(masked.text))
+                guard !Task.isCancelled else { return }
+                let correction = try CorrectionParser.parse(raw)
+                let edits = EditPlanner.prepare(correction.edits, placeholders: masked.placeholders)
+                model.edits = EditPlanner.plan(text: snap.targetText, edits: edits, protected: snap.protected)
+                model.detectedTone = correction.tone
+                model.state = model.edits.isEmpty ? .noChanges : .result
+                // Underline the words in the field itself (word-level modes only).
+                if model.mode.isPrimary, model.mode != .translate, !model.edits.isEmpty {
+                    let rects = TextAccess.rects(for: model.edits, in: snap)
+                    overlay.show(model.edits.compactMap { e in
+                        rects[e.range.location].map { (id: e.range.location, axRect: $0, color: Ink.nsColor(e.category)) }
+                    })
+                    Log.info("underlines \(rects.count)/\(model.edits.count)")
+                }
+                Log.info("result; edits=\(model.edits.count)")
+                if model.edits.isEmpty {
+                    try? await Task.sleep(for: .seconds(1.2))
+                    if case .noChanges = model.state { hidePanel() }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                Log.info("provider failed: \(error.localizedDescription)")
+                model.state = .error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func applyResult() {
+        guard let snap = snapshot, case .result = panel.model.state else { return }
+        let edits = panel.model.edits
+        let result = EditPlanner.apply(edits, to: snap.targetText)
+        let mode = panel.model.mode
+        hidePanel()
+        Task { @MainActor in
+            let ok = await TextAccess.apply(edits, to: snap, result: result)
+            Log.info("apply \(ok ? "ok" : "mismatch")")
+            if !ok {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result, forType: .string)
+                panel.model.state = .error("Couldn't apply cleanly. The corrected text is on your clipboard.")
+                panel.show(anchor: snap.anchor)
+            }
+            if UserDefaults.standard.bool(forKey: Prefs.historyEnabled) {
+                HistoryStore.append(HistoryEntry(date: .now, app: snap.app.bundleIdentifier, mode: mode,
+                                                 original: snap.targetText, corrected: result,
+                                                 edits: edits.map { Edit(original: (snap.targetText as NSString).substring(with: $0.range),
+                                                                         replacement: $0.replacement, explanation: $0.explanation) }))
+            }
+        }
+    }
+
+    private func close() {
+        task?.cancel()
+        hidePanel()
+        snapshot?.app.activate()
+    }
+
+    /// Returns true when the key was handled.
+    private func handleKey(_ e: NSEvent) -> Bool {
+        let cmd = e.modifierFlags.contains(.command)
+        // While typing a custom instruction, let the text field have the keys (except Esc).
+        if panel.model.showCustom {
+            if Int(e.keyCode) == kVK_Escape { panel.model.showCustom = false; return true }
+            return false
+        }
+        if cmd, Int(e.keyCode) == kVK_ANSI_K { panel.model.showCustom = true; return true }
+        switch Int(e.keyCode) {
+        case kVK_Escape: close()
+        case kVK_Return, kVK_ANSI_KeypadEnter: applyResult()
+        case kVK_Tab:
+            guard snapshot != nil else { return true }
+            panel.model.mode = e.modifierFlags.contains(.shift) ? panel.model.mode.previous() : panel.model.mode.next()
+            run()
+        case kVK_ANSI_E where cmd: panel.model.showExplanations.toggle()
+        case kVK_ANSI_C where cmd:
+            guard let snap = snapshot, case .result = panel.model.state else { return true }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(EditPlanner.apply(panel.model.edits, to: snap.targetText), forType: .string)
+            close()
+        default: return false
+        }
+        return true
+    }
+}
+
+extension AppDelegate: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if AXIsProcessTrusted() { hotKey?.retryTapIfNeeded() }
+        menu.item(withTag: 98)?.state = UserDefaults.standard.bool(forKey: LiveController.enabledKey) ? .on : .off
+        guard let item = menu.item(withTag: 99) else { return }
+        let trusted = AXIsProcessTrusted()
+        let hotkeyOK = hotKey?.registered == true
+        item.title = trusted
+            ? (hotkeyOK ? "✓ Ready" : "⚠︎ Shortcut ⌃⌥I is taken by another app")
+            : "⚠︎ Grant Accessibility permission…"
+        item.isEnabled = !trusted
+    }
+}

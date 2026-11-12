@@ -8,5 +8,6 @@ let package = Package(
         .target(name: "InkyCore"),
         .executableTarget(name: "Inky", dependencies: ["InkyCore"]),
         .testTarget(name: "InkyCoreTests", dependencies: ["InkyCore"]),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )

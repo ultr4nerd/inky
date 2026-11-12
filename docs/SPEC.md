@@ -18,7 +18,7 @@ Inky es una herramienta de escritura asistida por IA para macOS, open source. Co
 
 ### Incluye
 - App de barra de menús (sin icono en el Dock).
-- Atajo global (por defecto `⌃⌥Space`, configurable).
+- Atajo global (por defecto `⌃⌥I`, configurable).
 - Panel flotante con diff, explicaciones y tono.
 - Tres modos: **Corregir**, **Natural** (que suene nativo), **Traducir** (es↔en).
 - Aplicación por fragmentos en Slack y apps con Accesibilidad; respaldo por portapapeles en el resto.
@@ -32,7 +32,7 @@ Inky es una herramienta de escritura asistida por IA para macOS, open source. Co
 
 ## Flujo principal
 
-1. Escribes en Slack. Antes de enviar, pulsas `⌃⌥Space`.
+1. Escribes en Slack. Antes de enviar, pulsas `⌃⌥I`.
 2. Inky lee el campo enfocado:
    - **Sin selección** → todo el contenido del campo.
    - **Con selección** → solo la selección.
@@ -131,3 +131,16 @@ El modelo por defecto es el más rápido del proveedor (Haiku en Claude).
 1. Licencia: MIT.
 2. Aceptar/rechazar cambios individuales: después de la Fase 1 (en la Fase 1 se aplica todo o nada).
 3. Historial local: en la Fase 1, apagado por defecto.
+
+## Estado (2026-11-12)
+
+Implementado y probado en Slack de escritorio:
+- Panel (diseño "nota al margen"): texto corregido con cambios resaltados por categoría, notas con explicación, detector de tono, modos Corregir / Natural / Traducir, menú Reescribir (más corto, formal, amigable, directo, simple) y instrucción libre (⌘K).
+- Categorías estilo Grammarly: corrección 🔴, claridad 🔵, interés 🟢, tono 🟣.
+- **Revisión en vivo (Fase 2 adelantada), solo Slack:** tras ~1.2 s de pausa se revisa cada oración nueva con un prompt corto (~1.2–2.5 s por oración con Haiku), con caché por oración. Subrayados ondulados sobre las palabras.
+- Posición de palabras en Chromium/Slack: recorriendo los text markers de cada `AXStaticText` (sin mover la selección, ~10 ms). Ver `docs/research/slack-accessibility.md`.
+- Asa a la izquierda del campo (cuenta de errores) y tarjeta al pasar el ratón para aplicar o ignorar una corrección.
+- Atajo ⌃⌥I vía CGEvent tap (⌃⌥Space lo usa macOS para cambiar de teclado; Carbon no recibía eventos de otros procesos).
+
+Decisiones:
+- Harper no se integra por ahora: no detecta los errores típicos de hispanohablantes y sugirió correcciones equivocadas. Se reconsidera como respaldo sin conexión.
