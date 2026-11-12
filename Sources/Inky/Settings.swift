@@ -34,7 +34,7 @@ enum Prefs {
             openAIModel: "llama3.2",
             explanationLanguage: ExplanationLanguage.spanish.rawValue,
             historyEnabled: false,
-            LiveController.enabledKey: true,
+            LiveController.enabledKey: false, // opt-in: it sends what you type to the provider
         ])
     }
 
@@ -44,9 +44,10 @@ enum Prefs {
     }
 
     /// Builds the provider for the current settings.
-    static func makeProvider() -> Provider {
+    static func makeProvider(purpose: String = "panel") -> Provider {
         switch ProviderKind(rawValue: d.string(forKey: provider) ?? "") ?? .claude {
-        case .claude: ClaudeCodeProvider(model: d.string(forKey: claudeModel) ?? "haiku")
+        case .claude: ClaudeCodeProvider(model: d.string(forKey: claudeModel) ?? "haiku",
+                                         maxRequests: purpose == "live" ? 4 : 6, purpose: purpose)
         case .codex: CodexProvider(model: d.string(forKey: codexModel))
         case .openai:
             OpenAICompatibleProvider(baseURL: URL(string: d.string(forKey: openAIBaseURL) ?? "") ?? URL(string: "http://localhost:11434/v1")!,

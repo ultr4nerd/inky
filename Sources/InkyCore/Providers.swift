@@ -60,17 +60,24 @@ public actor ClaudeCodeProvider: Provider {
     public nonisolated let displayName: String
     private let model: String
     private let executableOverride: String?
-    private let maxRequests = 15
+    /// Recycle the process often: the session keeps every past turn as context.
+    private let maxRequests: Int
+    /// Label for metrics ("live" / "panel").
+    private let purpose: String
 
     private var process: Process?
     private var stdin: FileHandle?
     private var lines: AsyncLineSequence<FileHandle.AsyncBytes>.AsyncIterator?
     private var requests = 0
     private var currentSystem = ""
+    /// `total_cost_usd` is cumulative per session; keep the last value to record deltas.
+    private var sessionCost = 0.0
 
-    public init(model: String = "haiku", executable: String? = nil) {
+    public init(model: String = "haiku", executable: String? = nil, maxRequests: Int = 5, purpose: String = "panel") {
         self.model = model
         self.executableOverride = executable
+        self.maxRequests = maxRequests
+        self.purpose = purpose
         self.displayName = "Claude \(model.capitalized)"
     }
 
@@ -114,6 +121,17 @@ public actor ClaudeCodeProvider: Provider {
                 if ev["is_error"] as? Bool == true {
                     throw ProviderError.processFailed("Claude: \(ev["result"] as? String ?? "error")")
                 }
+                let usage = ev["usage"] as? [String: Any] ?? [:]
+                defer { sessionCost = ev["total_cost_usd"] as? Double ?? sessionCost }
+                Metrics.record("llm", [
+                    "purpose": purpose, "provider": "claude", "model": model,
+                    "input": usage["input_tokens"] as? Int ?? 0,
+                    "output": usage["output_tokens"] as? Int ?? 0,
+                    "cacheRead": usage["cache_read_input_tokens"] as? Int ?? 0,
+                    "cacheWrite": usage["cache_creation_input_tokens"] as? Int ?? 0,
+                    "costUSD": max(0, (ev["total_cost_usd"] as? Double ?? 0) - sessionCost),
+                    "ms": ev["duration_ms"] as? Int ?? 0,
+                ])
                 return ev["result"] as? String ?? ""
             }
             throw ProviderError.processFailed("Claude exited unexpectedly. Is `claude` logged in?")
@@ -131,7 +149,7 @@ public actor ClaudeCodeProvider: Provider {
         p.executableURL = URL(fileURLWithPath: exe)
         p.currentDirectoryURL = CommandResolver.workingDirectory()
         p.arguments = [
-            "-p", "--model", model,
+            "-p", "--model", model, "--effort", "low",
             "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--tools", "", "--strict-mcp-config", "--setting-sources", "",
             "--system-prompt", system,
@@ -145,6 +163,7 @@ public actor ClaudeCodeProvider: Provider {
         stdin = inPipe.fileHandleForWriting
         lines = outPipe.fileHandleForReading.bytes.lines.makeAsyncIterator()
         requests = 0
+        sessionCost = 0
         currentSystem = system
     }
 

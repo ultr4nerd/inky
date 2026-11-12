@@ -29,9 +29,9 @@ func liveModeSentenceLatency() async throws {
     await provider.warmUp(system: PromptBuilder.system)
     let prompt = PromptBuilder(mode: .correct, tone: .casualProfessional, explanationLanguage: .spanish, live: true)
     for s in ["hey this are a test, can you sent me the file when you will have time?",
-              "I am agree with you, lets do it on monday.",
-              "He don't know nothing about the deploy.",
-              "Thanks, that works for me."] {
+              "I am agree with you, lets do it on monday.\nHe don't know nothing about the deploy.\nThanks, that works for me.",
+              "Thanks, that works for me.",
+              "Sounds good, I'll take a look tomorrow."] {
         let start = Date()
         let c = try CorrectionParser.parse(try await provider.complete(system: PromptBuilder.system, user: prompt.user(s)))
         print("[live] \(String(format: "%.2f", Date().timeIntervalSince(start)))s \(s)")

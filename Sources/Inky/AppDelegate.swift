@@ -70,10 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         status.target = self
         status.tag = 99
         menu.addItem(status)
-        let liveItem = NSMenuItem(title: "Live checking in Slack", action: #selector(toggleLive), keyEquivalent: "")
+        let liveItem = NSMenuItem(title: "Live checking in Slack (sends text as you type)", action: #selector(toggleLive), keyEquivalent: "")
         liveItem.target = self
         liveItem.tag = 98
         menu.addItem(liveItem)
+        menu.addItem(withTitle: "Stats…", action: #selector(showStats), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "Quit Inky", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -88,7 +89,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLive() {
         let d = UserDefaults.standard
-        d.set(!d.bool(forKey: LiveController.enabledKey), forKey: LiveController.enabledKey)
+        let on = d.bool(forKey: LiveController.enabledKey)
+        if !on {
+            NSApp.activate()
+            let alert = NSAlert()
+            alert.messageText = "Turn on live checking in Slack?"
+            alert.informativeText = """
+            While it's on, every sentence you type in Slack is sent to your AI provider (\(currentProvider().displayName)) \
+            after you pause, without pressing anything. Check that this is OK with your company's policies.
+
+            The handle next to the text field turns blue while live checking is on.
+            """
+            alert.addButton(withTitle: "Turn On")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        d.set(!on, forKey: LiveController.enabledKey)
+        Metrics.record("live_toggled", ["on": !on])
+    }
+
+    @objc private func showStats() {
+        let ev = Metrics.events(since: Date().addingTimeInterval(-7 * 86400))
+        func count(_ e: String) -> Int { ev.filter { $0["event"] as? String == e }.count }
+        func sum(_ e: String, _ k: String) -> Int { ev.filter { $0["event"] as? String == e }.reduce(0) { $0 + ($1[k] as? Int ?? 0) } }
+        let sentences = sum("live_check", "sentences"), suggestions = sum("live_check", "edits")
+        let applied = count("suggestion_applied"), ignored = count("suggestion_ignored")
+        let sent = ev.filter { $0["event"] as? String == "message_sent" }
+        let late = sent.filter { ($0["inFlight"] as? Bool) == true || ($0["unchecked"] as? Bool) == true }.count
+        let llm = ev.filter { $0["event"] as? String == "llm" }
+        let cost = llm.reduce(0.0) { $0 + ($1["costUSD"] as? Double ?? 0) }
+        let out = llm.reduce(0) { $0 + ($1["output"] as? Int ?? 0) }
+        let pct = { (a: Int, b: Int) in b == 0 ? "–" : "\(Int((Double(a) / Double(b) * 100).rounded()))%" }
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Inky · last 7 days"
+        alert.informativeText = """
+        Live checking
+        • Sentences checked: \(sentences)
+        • Suggestions: \(suggestions) (applied \(applied), dismissed \(ignored))
+        • Applied per sentence checked: \(pct(applied, sentences))
+        • Messages sent: \(sent.count), before Inky finished: \(late) (\(pct(late, sent.count)))
+
+        Model usage
+        • Requests: \(llm.count) · output tokens: \(out)
+        • Cost reported by the CLI (API-equivalent): $\(String(format: "%.3f", cost))
+        """
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Show File")
+        if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.activateFileViewerSelecting([Metrics.fileURL]) }
     }
 
     @objc private func checkFromMenu() { hotKeyPressed() }
@@ -252,6 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             let ok = await TextAccess.apply(edits, to: snap, result: result)
             Log.info("apply \(ok ? "ok" : "mismatch")")
+            Metrics.record("panel_applied", ["edits": edits.count, "mode": mode.rawValue, "ok": ok])
             if !ok {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result, forType: .string)

@@ -10,6 +10,8 @@ final class HandleModel: ObservableObject {
     @Published var count = 0
     @Published var worst: EditCategory?
     @Published var checking = false
+    /// Live checking is on for this field (the pill turns ink-colored as a privacy cue).
+    @Published var liveOn = false
 }
 
 @MainActor
@@ -76,7 +78,8 @@ private struct HandleView: View {
                         .transition(.scale.combined(with: .opacity))
                 } else {
                     Capsule()
-                        .fill(.secondary.opacity(model.checking ? 0.9 : 0.55))
+                        .fill(model.liveOn ? AnyShapeStyle(Ink.accent.opacity(model.checking ? 1 : 0.7))
+                                           : AnyShapeStyle(.secondary.opacity(0.55)))
                         .frame(width: 4, height: 18)
                         .transition(.opacity)
                 }
@@ -85,7 +88,7 @@ private struct HandleView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Inky · ⌃⌥I")
+        .help(model.liveOn ? "Inky · live checking on · ⌃⌥I" : "Inky · ⌃⌥I")
         .onHover { hover = $0 }
         .animation(.spring(duration: 0.2), value: hover)
         .animation(.spring(duration: 0.2), value: model.count)

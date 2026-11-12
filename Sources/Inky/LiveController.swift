@@ -45,7 +45,7 @@ final class LiveController {
     private func currentProvider() -> Provider {
         let sig = Prefs.providerSignature
         if provider == nil || sig != providerSignature {
-            provider = Prefs.makeProvider()   // its own process, separate from the panel's
+            provider = Prefs.makeProvider(purpose: "live")   // its own process, separate from the panel's
             providerSignature = sig
             if let claude = provider as? ClaudeCodeProvider { Task { await claude.warmUp(system: PromptBuilder.system) } }
         }
@@ -61,8 +61,18 @@ final class LiveController {
         handle.show(for: field.frame)
         hideCardIfMouseLeft()
 
-        guard enabled, Self.apps.contains(field.app.bundleIdentifier ?? "") else { clearMarks(); return }
+        guard enabled, Self.apps.contains(field.app.bundleIdentifier ?? "") else {
+            handle.model.liveOn = false
+            clearMarks(); return
+        }
+        handle.model.liveOn = true
         if field.value != lastValue {
+            // Field emptied after having text: the message was sent.
+            if let last = lastValue, !last.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Metrics.record("message_sent", ["inFlight": inFlight, "issuesShown": current?.edits.count ?? 0,
+                                                "unchecked": renderedValue != last])
+            }
             lastValue = field.value
             lastChange = .now
             if renderedValue != field.value { clearMarks() }
@@ -91,6 +101,7 @@ final class LiveController {
         return out
     }
 
+    /// One request per pause with every new sentence (one per line), not one per sentence.
     private func checkPending(_ field: TextAccess.FocusedField) {
         guard !inFlight else { return }
         let snap = TextAccess.snapshot(of: field)
@@ -101,27 +112,42 @@ final class LiveController {
         let provider = currentProvider()
         let prompt = PromptBuilder(mode: .correct, tone: Tone.default(forBundleID: field.app.bundleIdentifier),
                                    explanationLanguage: Prefs.explanationLang, live: true)
-        Task { @MainActor in
-            for s in pending {
-                let protected = snap.protected.compactMap { r -> NSRange? in
-                    NSIntersectionRange(r, s.range).length == r.length ? NSRange(location: r.location - s.range.location, length: r.length) : nil
-                }
-                let masked = MentionMasker.mask(s.text, protected: protected)
-                let start = Date()
-                do {
-                    let raw = try await provider.complete(system: PromptBuilder.system, user: prompt.user(masked.text))
-                    let c = try CorrectionParser.parse(raw)
-                    cache[s.key] = EditPlanner.prepare(c.edits, placeholders: masked.placeholders)
-                    Log.info("live: \(cache[s.key]?.count ?? 0) edits in \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
-                } catch {
-                    cache[s.key] = []
-                    Log.info("live failed: \(error.localizedDescription)")
-                }
-                // Show results as they arrive, if the text hasn't changed meanwhile.
-                if let f = TextAccess.focusedField(), f.value == field.value, !suspended { render(f) }
+        // Join the sentences, shifting each one's protected ranges (mentions) into the joined text.
+        var joined = ""
+        var protected: [NSRange] = []
+        for s in pending {
+            let base = (joined as NSString).length
+            for r in snap.protected where NSIntersectionRange(r, s.range).length == r.length {
+                protected.append(NSRange(location: base + r.location - s.range.location, length: r.length))
             }
+            joined += s.text.replacingOccurrences(of: "\n", with: " ") + "\n"
+        }
+        let masked = MentionMasker.mask(joined, protected: protected)
+        let chars = (joined as NSString).length
+        Task { @MainActor in
+            let start = Date()
+            var edits: [Edit] = []
+            do {
+                let raw = try await provider.complete(system: PromptBuilder.system, user: prompt.user(masked.text))
+                let c = try CorrectionParser.parse(raw)
+                edits = EditPlanner.prepare(c.edits, placeholders: masked.placeholders)
+                    .filter { $0.kind == .correctness || $0.kind == .clarity }
+            } catch {
+                Log.info("live failed: \(error.localizedDescription)")
+            }
+            // Give each edit to the sentence that contains it.
+            var bySentence: [String: [Edit]] = Dictionary(uniqueKeysWithValues: pending.map { ($0.key, []) })
+            for e in edits {
+                if let s = pending.first(where: { $0.text.contains(e.original) }) { bySentence[s.key, default: []].append(e) }
+            }
+            for (k, v) in bySentence { cache[k] = v }
+            let secs = Date().timeIntervalSince(start)
+            Log.info("live: \(pending.count) sentences, \(edits.count) edits in \(String(format: "%.1f", secs))s")
+            Metrics.record("live_check", ["sentences": pending.count, "chars": chars, "edits": edits.count,
+                                          "ms": Int(secs * 1000)])
             inFlight = false
             handle.model.checking = false
+            if let f = TextAccess.focusedField(), f.value == field.value, !suspended { render(f) }
         }
     }
 
@@ -191,6 +217,7 @@ final class LiveController {
             let newKey = key.replacingOccurrences(of: removed, with: e.replacement)
             cache[newKey] = edits.filter { $0.original != removed }
         }
+        Metrics.record("suggestion_applied", ["source": "live", "category": e.category.rawValue])
         Task { @MainActor in
             let ok = await TextAccess.apply([e], to: cur.snap, result: result)
             Log.info("live apply \(ok ? "ok" : "mismatch")")
@@ -200,6 +227,7 @@ final class LiveController {
     private func ignore(_ e: PlannedEdit) {
         guard let cur = current, let key = cur.sentenceOf[e.range.location] else { return }
         ignored.insert("\(key)|\((cur.snap.fieldText as NSString).substring(with: e.range))")
+        Metrics.record("suggestion_ignored", ["source": "live", "category": e.category.rawValue])
         card.hide()
         if let f = TextAccess.focusedField() { render(f) }
     }

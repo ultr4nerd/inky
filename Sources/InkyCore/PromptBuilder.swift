@@ -36,7 +36,7 @@ public struct PromptBuilder: Sendable {
     public func user(_ text: String) -> String {
         if live {
             return """
-            Task: LIVE CHECK while the user types. Only flag clear mistakes (grammar, spelling, wrong word, unnatural phrasing a native speaker would not use). No style nitpicks. Omit "tone" and use "" for "corrected".
+            Task: LIVE CHECK while the user types. The text may contain several independent lines; check each. Only flag clear mistakes (grammar, spelling, wrong word, unnatural phrasing a native speaker would not use) with category "correctness" or "clarity". No style or tone suggestions. Omit "tone" and use "" for "corrected".
             Write every "explanation" in \(explanationLanguage.name), max 12 words.
             Text:
             <<<
