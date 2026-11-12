@@ -144,3 +144,4 @@ Implementado y probado en Slack de escritorio:
 
 Decisiones:
 - Harper no se integra por ahora: no detecta los errores típicos de hispanohablantes y sugirió correcciones equivocadas. Se reconsidera como respaldo sin conexión.
+- **Inky no instala modelos ni dependencias pesadas.** Usa lo que el usuario ya tiene (CLI de Claude Code o Codex, API key, o su propio Ollama). Motivo: un modelo local pesa gigas por usuario y Gemma 3 4B detectó solo el 51% de los errores que detecta Claude Haiku (ver `docs/research/slack-accessibility.md`).
