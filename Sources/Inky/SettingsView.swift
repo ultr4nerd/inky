@@ -100,28 +100,25 @@ private struct LiveTab: View {
                 Toggle(L("Revisión en vivo", "Live checking"), isOn: Binding(get: { enabled }, set: { on in
                     if !on || LivePrivacy.confirm() { LivePrivacy.set(on) }
                 }))
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(LivePrivacy.implications(), id: \.self) { line in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("•").foregroundStyle(.tertiary)
-                            Text(line).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(LivePrivacy.essentials(), id: \.text) { row in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: row.symbol).frame(width: 14)
+                            Text(row.text).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }
-            Section(L("Dónde", "Where")) {
+            Section {
                 LiveAppsEditor()
+            } header: {
+                Text(L("Dónde", "Where"))
+            } footer: {
+                Text(L("Nunca revisa contraseñas, terminales ni gestores de contraseñas.", "Never checks passwords, terminals or password managers."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Section(L("Cuándo revisar", "When to check")) {
-                LabeledContent(L("Pausa antes de revisar", "Pause before checking")) {
-                    HStack {
-                        Slider(value: $pause, in: 0.6...3, step: 0.2).frame(width: 160)
-                        Text(String(format: "%.1f s", pause)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40)
-                    }
-                }
-            }
-            Section(L("Qué subrayar", "What to underline")) {
+            Section(L("Qué y cuándo", "What and when")) {
                 ForEach(EditCategory.allCases, id: \.rawValue) { c in
                     Toggle(isOn: Binding(get: { categories.contains(c.rawValue) }, set: { on in
                         if on { categories.insert(c.rawValue) } else if categories.count > 1 { categories.remove(c.rawValue) }
@@ -129,17 +126,21 @@ private struct LiveTab: View {
                     })) {
                         HStack(spacing: 8) {
                             Circle().fill(Ink.color(c)).frame(width: 8, height: 8)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(categoryTitle(c))
-                                Text(categoryHint(c)).font(.caption).foregroundStyle(.secondary)
-                            }
+                            Text(categoryTitle(c))
                         }
+                    }
+                    .help(categoryHint(c))
+                }
+                LabeledContent(L("Pausa antes de revisar", "Pause before checking")) {
+                    HStack {
+                        Slider(value: $pause, in: 0.6...3, step: 0.2).frame(width: 140)
+                        Text(String(format: "%.1f s", pause)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40)
                     }
                 }
             }
         }
         .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(height: 560)   // scrolls instead of growing past the screen
     }
 
     private func categoryTitle(_ c: EditCategory) -> String {
