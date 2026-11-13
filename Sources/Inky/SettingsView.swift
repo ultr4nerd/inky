@@ -110,6 +110,17 @@ private struct LiveTab: View {
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }
+            if enabled { details }
+        }
+        .formStyle(.grouped)
+        // Scrolls instead of growing past the screen once the details show.
+        .frame(height: enabled ? 560 : nil)
+        .fixedSize(horizontal: false, vertical: !enabled)
+        .animation(Ink.settle, value: enabled)
+    }
+
+    /// Where, what and when: only relevant once live checking is on.
+    @ViewBuilder private var details: some View {
             Section {
                 LiveAppsEditor()
             } header: {
@@ -138,9 +149,6 @@ private struct LiveTab: View {
                     }
                 }
             }
-        }
-        .formStyle(.grouped)
-        .frame(height: 560)   // scrolls instead of growing past the screen
     }
 
     private func categoryTitle(_ c: EditCategory) -> String {
