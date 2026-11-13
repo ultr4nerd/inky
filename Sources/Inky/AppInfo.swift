@@ -20,12 +20,15 @@ enum AppInfo {
     /// Apps people write in, by kind (only the installed ones are shown).
     static func suggestedGroups() -> [Group] {
         [Group(title: L("Trabajo", "Work"), note: nil,
-               ids: ["com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.linear", "com.atlassian.jira.mac",
+               ids: ["com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.teams", "com.linear", "com.atlassian.jira.mac",
                      "notion.id", "us.zoom.xos"]),
          Group(title: L("Correo", "Mail"), note: nil,
                ids: ["com.apple.mail", "com.microsoft.Outlook", "com.superhuman.electron", "com.readdle.SparkDesktop"]),
          Group(title: L("Personal", "Personal"), note: nil,
-               ids: ["com.apple.MobileSMS", "net.whatsapp.WhatsApp", "ru.keepcoder.Telegram", "com.hnc.Discord", "com.apple.Notes"]),
+               ids: ["com.apple.MobileSMS", "net.whatsapp.WhatsApp", "desktop.WhatsApp", "ru.keepcoder.Telegram", "com.tdesktop.Telegram",
+                     "com.hnc.Discord"]),
+         Group(title: L("Notas", "Notes"), note: nil,
+               ids: ["com.apple.Notes", "md.obsidian", "net.shinyfrog.bear", "com.lukilabs.lukiapp"]),
          Group(title: L("Navegadores", "Browsers"), note: L("Revisa todas las webs", "Checks every website"),
                ids: ["com.google.Chrome", "com.apple.Safari", "company.thebrowser.Browser"])]
             .map { Group(title: $0.title, note: $0.note, ids: $0.ids.filter { url($0) != nil }) }
@@ -34,7 +37,7 @@ enum AppInfo {
 
     /// Work apps turned on by default for live checking (the installed ones).
     static func defaultLiveApps() -> [String] {
-        ["com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.apple.mail", "com.microsoft.Outlook", "com.linear"]
+        ["com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.teams", "com.apple.mail", "com.microsoft.Outlook", "com.linear"]
             .filter { url($0) != nil }
     }
 
