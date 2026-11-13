@@ -66,7 +66,7 @@ enum Prefs {
         UserDefaults.standard.register(defaults: [
             provider: ProviderKind.claude.rawValue,
             claudeModel: "haiku",
-            codexModel: "",
+            codexModel: "gpt-6-luna",   // fast and affordable; corrections don't need a frontier model
             openAIBaseURL: "http://localhost:11434/v1",
             openAIModel: "llama3.2",
             explanationLanguage: systemLanguage.rawValue,

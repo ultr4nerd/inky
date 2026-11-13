@@ -206,6 +206,11 @@ public actor ClaudeCodeProvider: Provider {
 
 /// One `codex exec` per request (~5 s). stdin must be closed or codex waits for input.
 public final class CodexProvider: Provider, @unchecked Sendable {
+    /// Agent features Inky never needs (each adds tool definitions to every request).
+    static let unusedFeatures = ["apps", "browser_use", "browser_use_external", "computer_use", "image_generation",
+                                 "multi_agent", "plugins", "skill_search", "tool_suggest", "goals", "view_image",
+                                 "shell_tool", "unified_exec", "sleep_tool", "in_app_browser", "hooks"]
+
     public let displayName: String
     private let model: String?
     private let executableOverride: String?
@@ -222,9 +227,18 @@ public final class CodexProvider: Provider, @unchecked Sendable {
         }
         let outFile = FileManager.default.temporaryDirectory.appendingPathComponent("inky-\(UUID().uuidString).txt")
         defer { try? FileManager.default.removeItem(at: outFile) }
-        var args = ["exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "-o", outFile.path]
+        // Inky's instructions replace Codex's coding-agent prompt, and the user's config, skills,
+        // plugins and agent tools stay out: ~10k tokens per check instead of ~19k.
+        let instructions = CommandResolver.workingDirectory().appendingPathComponent("codex-instructions.txt")
+        if (try? String(contentsOf: instructions, encoding: .utf8)) != system {
+            try? system.write(to: instructions, atomically: true, encoding: .utf8)
+        }
+        var args = ["exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "-o", outFile.path,
+                    "--ignore-user-config", "-c", "model_instructions_file=\"\(instructions.path)\"",
+                    "-c", "model_reasoning_effort=\"low\""]
+        for feature in Self.unusedFeatures { args += ["--disable", feature] }
         if let model, !model.isEmpty { args += ["-m", model] }
-        args.append("\(system)\n\n\(user)")
+        args.append(user)
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)

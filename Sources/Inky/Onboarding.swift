@@ -210,7 +210,7 @@ private struct ProviderPage: View {
             VStack(spacing: 8) {
                 option(.claude, L("Claude Code", "Claude Code"), hasClaude ? L("Encontrado · recomendado (rápido y barato con Haiku)", "Found · recommended (fast and cheap with Haiku)")
                                                                            : L("No encontrado: instala `claude` para usarlo", "Not found: install `claude` to use it"), hasClaude)
-                option(.codex, "Codex", hasCodex ? L("Encontrado · más lento y ~5× más tokens por revisión", "Found · slower, ~5× more tokens per check")
+                option(.codex, "Codex", hasCodex ? L("Encontrado · usa gpt-6-luna; más lento (~4 s) y 2–3× más tokens", "Found · uses gpt-6-luna; slower (~4 s), 2–3× more tokens")
                                                  : L("No encontrado", "Not found"), hasCodex)
                 option(.openai, L("API compatible con OpenAI", "OpenAI-compatible API"), L("Ollama, LM Studio o una API key · se configura en Ajustes", "Ollama, LM Studio or an API key · set up in Settings"), true)
             }

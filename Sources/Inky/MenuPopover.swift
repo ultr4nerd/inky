@@ -223,8 +223,8 @@ struct UsageSummary: View {
                 }
             case .codex:
                 Text("Codex").font(.caption).foregroundStyle(.secondary)
-                Text(L("Codex no informa de tus límites. Cada revisión usa ~19 000 tokens, unas 5× más que Claude.",
-                       "Codex doesn't report your limits. Each check uses ~19,000 tokens, about 5× Claude."))
+                Text(L("Codex no informa de tus límites. Cada revisión usa ~10 000 tokens (unas 2–3× más que Claude) y tarda ~4 s.",
+                       "Codex doesn't report your limits. Each check uses ~10,000 tokens (about 2–3× Claude) and takes ~4 s."))
                     .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             case .openai:
                 Text(L("API compatible con OpenAI", "OpenAI-compatible API")).font(.caption).foregroundStyle(.secondary)

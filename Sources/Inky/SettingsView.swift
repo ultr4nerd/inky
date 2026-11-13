@@ -189,7 +189,7 @@ private struct ToneTab: View {
 private struct ProviderTab: View {
     @AppStorage(Prefs.provider) private var provider = ProviderKind.claude.rawValue
     @AppStorage(Prefs.claudeModel) private var claudeModel = "haiku"
-    @AppStorage(Prefs.codexModel) private var codexModel = ""
+    @AppStorage(Prefs.codexModel) private var codexModel = "gpt-6-luna"
     @AppStorage(Prefs.openAIBaseURL) private var baseURL = "http://localhost:11434/v1"
     @AppStorage(Prefs.openAIModel) private var openAIModel = "llama3.2"
     @State private var apiKey = Keychain.apiKey ?? ""
@@ -330,7 +330,7 @@ enum LivePrivacy {
                 cost = L("Usa tu suscripción de Claude: 100 revisiones ≈ 0.01% del límite semanal.",
                          "Uses your Claude subscription: 100 checks ≈ 0.01% of the weekly limit.")
             }
-        case .codex: cost = L("Usa tu límite de Codex, unas 5× más rápido que con Claude.", "Uses your Codex limit, about 5× faster than Claude.")
+        case .codex: cost = L("Usa tu límite de Codex: ~10 000 tokens por revisión, 2–3× más que con Claude.", "Uses your Codex limit: ~10,000 tokens per check, 2–3× Claude.")
         case .openai: cost = L("Tu proveedor cobra cada revisión (1 000–4 000 tokens).", "Your provider bills each check (1,000–4,000 tokens).")
         }
         return [("arrow.up.forward.circle", L("Envía lo que escribes a \(name) en cada pausa, sin que pulses nada.",
@@ -351,8 +351,8 @@ enum LivePrivacy {
                          "Uses your Claude subscription. With Haiku it's little: about 100 checks are usually under 0.01% of the weekly limit.")
             }
         case .codex:
-            cost = L("Con Codex cada revisión usa ~19 000 tokens: tu límite se gasta unas 5× más rápido que con Claude.",
-                     "With Codex each check uses ~19,000 tokens: your limit runs out about 5× faster than with Claude.")
+            cost = L("Con Codex cada revisión usa ~10 000 tokens: tu límite se gasta 2–3× más rápido que con Claude.",
+                     "With Codex each check uses ~10,000 tokens: your limit runs out 2–3× faster than with Claude.")
         case .openai:
             cost = L("Tu proveedor cobra cada revisión (unos 1 000–4 000 tokens).", "Your provider bills each check (about 1,000–4,000 tokens).")
         }
