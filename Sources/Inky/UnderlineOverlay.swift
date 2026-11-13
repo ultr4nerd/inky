@@ -111,17 +111,17 @@ final class UnderlineOverlay {
         splashes.append(w)
 
         let grow = CABasicAnimation(keyPath: "transform.scale")
-        grow.fromValue = 0.3; grow.toValue = 3.2
+        grow.fromValue = 0.3; grow.toValue = 3.0
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1; fade.toValue = 0
         let group = CAAnimationGroup()
         group.animations = [grow, fade]
-        group.duration = 0.55
-        group.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+        group.duration = 0.9
+        group.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 0.6, 0.3, 1)
         group.fillMode = .forwards
         group.isRemovedOnCompletion = false
         ring.add(group, forKey: "splash")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
             w.orderOut(nil)
             splashes.removeAll { $0 === w }
         }
