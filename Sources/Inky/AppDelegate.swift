@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var providerSignature = ""
     private var snapshot: FieldSnapshot?
     private var task: Task<Void, Never>?
-    private var applying = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Prefs.registerDefaults()
@@ -53,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                           object: nil, queue: .main) { [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             MainActor.assumeIsolated {
-                guard let self, self.panel.isVisible, !self.applying,
+                guard let self, self.panel.isVisible, !self.panel.model.applying,
                       app?.processIdentifier != self.snapshot?.app.processIdentifier,
                       app?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
                 self.task?.cancel()
@@ -107,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             While it's on, every sentence you type in Slack is sent to your AI provider (\(currentProvider().displayName)) \
             after you pause, without pressing anything. Check that this is OK with your company's policies.
 
-            The ink drop next to the text field turns dark while live checking is on.
+            The ink drop next to the text field gets a ring while live checking is on.
             """
             alert.addButton(withTitle: "Turn On")
             alert.addButton(withTitle: "Cancel")
@@ -214,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func hidePanel(animated: Bool = true) {
         live.suspended = false
         live.handle.model.checking = false
+        panel.model.applying = false
         overlay.hide(forget: true)
         panel.hide(animated: animated)
         panel.model.showCustom = false
@@ -233,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func hotKeyPressed() {
         Log.info("hotkey pressed; front=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?") trusted=\(AXIsProcessTrusted()) panelVisible=\(panel.isVisible)")
         guard !panel.isVisible else { return }
+        panel.model.applying = false
         guard AXIsProcessTrusted() else {
             panel.model.state = .error("Inky needs Accessibility permission (System Settings → Privacy & Security → Accessibility).")
             panel.show(anchor: nil)
@@ -337,6 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !ok {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result, forType: .string)
+                panel.model.applying = false
                 panel.model.state = .error("Couldn't apply cleanly. The corrected text is on your clipboard.")
                 panel.show(anchor: snap.anchor)
             }

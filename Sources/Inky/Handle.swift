@@ -94,6 +94,12 @@ private struct HandleView: View {
                     .fill(fill)
                     .frame(width: 20, height: 20)
                     .overlay { symbol }
+                    .overlay {
+                        // Privacy cue: a ring while live checking is sending what you type.
+                        if look == .idle && model.liveOn {
+                            Circle().strokeBorder(Ink.ink, lineWidth: 1.5)
+                        }
+                    }
                     .modifier(Breathe(on: look == .checking && !reduceMotion))
             }
             .frame(width: Handle.size, height: Handle.size)
@@ -117,7 +123,7 @@ private struct HandleView: View {
         case .issues:
             Text("\(model.count)")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ink.onColor)   // contrast in both modes (the dark-mode inks are light)
                 .contentTransition(.numericText(value: Double(model.count)))
         case .done:
             Image(systemName: "checkmark")

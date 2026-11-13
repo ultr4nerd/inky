@@ -96,6 +96,10 @@ enum Ink {
 
     static func color(_ c: EditCategory) -> Color { Color(nsColor: nsColor(c)) }
 
+    /// Text on a category-colored fill: white on the light-mode inks, near-black on the
+    /// lighter dark-mode inks.
+    static let onColor = Color(nsColor: dynamic((1, 1, 1), (0.08, 0.08, 0.08)))
+
     /// Springs used everywhere, matching the motion prototype.
     static let pop = Animation.spring(duration: 0.32, bounce: 0.25)
     static let settle = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.5)
@@ -156,7 +160,7 @@ struct PanelView: View {
         switch model.state {
         case .loading: return model.t("Revisando…", "Checking…") + where_
         case .result:
-            if !model.mode.isPrimary { return model.title(model.mode) + where_ }
+            if model.mode.isWholeText { return model.title(model.mode) + where_ }
             let n = model.edits.count
             return (n == 1 ? model.t("1 corrección", "1 fix") : model.t("\(n) correcciones", "\(n) fixes")) + where_
         case .noChanges: return model.t("Sin cambios", "No changes") + where_
@@ -335,7 +339,7 @@ struct PanelView: View {
     }
 
     @ViewBuilder private var toneLine: some View {
-        if let tone = model.detectedTone, !tone.isEmpty, model.mode.isPrimary {
+        if let tone = model.detectedTone, !tone.isEmpty, !model.mode.isWholeText {
             HStack(spacing: 6) {
                 Image(systemName: "waveform").font(.system(size: 10, weight: .semibold))
                 Text(model.t("Suena", "Sounds")).fontWeight(.medium)
@@ -353,7 +357,7 @@ struct PanelView: View {
             RoundedRectangle(cornerRadius: 1.5).fill(color.opacity(0.85)).frame(width: 3)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    if model.mode.isPrimary {
+                    if !model.mode.isWholeText {
                         (Text(removed(e)).strikethrough().foregroundStyle(.secondary)
                          + Text("  →  ").foregroundStyle(.tertiary)
                          + Text(e.replacement.isEmpty ? "∅" : e.replacement).bold())
@@ -361,9 +365,11 @@ struct PanelView: View {
                             .lineLimit(2)
                     }
                     Spacer(minLength: 4)
-                    Text(model.label(e.category).uppercased())
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(color)
+                    if !model.mode.isWholeText {
+                        Text(model.label(e.category).uppercased())
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(color)
+                    }
                 }
                 if !e.explanation.isEmpty {
                     Text(e.explanation)
@@ -397,11 +403,9 @@ struct PanelView: View {
             if case .result = model.state {
                 Button { model.onApply() } label: {
                     HStack(spacing: 4) {
-                        if model.applying {
-                            Image(systemName: "checkmark").font(.caption.weight(.heavy))
-                                .transition(.scale(scale: 0.3).combined(with: .opacity))
-                        }
-                        Text(model.applying ? model.t("Listo", "Done") : model.t("Aplicar ↩", "Apply ↩"))
+                        // Not "done" yet: the check comes from the handle once the text is really in.
+                        Text(model.applying ? model.t("Aplicando…", "Applying…") : model.t("Aplicar ↩", "Apply ↩"))
+                            .contentTransition(.opacity)
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Ink.paper)
@@ -430,7 +434,7 @@ struct PanelView: View {
         for e in sortedEdits {
             out += AttributedString(ns.substring(with: NSRange(location: cursor, length: e.range.location - cursor)))
             var ins = AttributedString(e.replacement)
-            if model.mode.isPrimary && !model.applying {
+            if !model.mode.isWholeText && !model.applying {
                 let c = Ink.color(e.category)
                 ins.backgroundColor = c.opacity(model.hovered == e.range.location ? 0.32 : 0.16)
                 ins.underlineStyle = Text.LineStyle(pattern: .solid, color: c)

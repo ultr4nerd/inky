@@ -12,6 +12,8 @@ public enum Mode: String, CaseIterable, Codable, Sendable {
     public static let rewrites: [Mode] = [.shorter, .formal, .friendly, .direct, .simpler]
 
     public var isPrimary: Bool { Mode.primary.contains(self) }
+    /// The result replaces the whole text (translation, rewrites) instead of fixing words.
+    public var isWholeText: Bool { self == .translate || !isPrimary }
 
     public func next() -> Mode {
         let p = Mode.primary
