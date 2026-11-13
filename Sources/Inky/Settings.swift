@@ -64,7 +64,7 @@ enum Prefs {
         UserDefaults.standard.register(defaults: [
             provider: ProviderKind.claude.rawValue,
             claudeModel: "haiku",
-            codexModel: "gpt-6-luna",   // fast and affordable; corrections don't need a frontier model
+            codexModel: "luna",   // a family; resolved to its newest version (fast and affordable)
             openAIBaseURL: "http://localhost:11434/v1",
             openAIModel: "llama3.2",
             explanationLanguage: systemLanguage.rawValue,
@@ -132,7 +132,7 @@ enum Prefs {
         switch ProviderKind(rawValue: d.string(forKey: provider) ?? "") ?? .claude {
         case .claude: ClaudeCodeProvider(model: d.string(forKey: claudeModel) ?? "haiku",
                                          maxRequests: purpose == "live" ? 4 : 6, purpose: purpose)
-        case .codex: CodexProvider(model: d.string(forKey: codexModel))
+        case .codex: CodexProvider(model: CodexModels.resolve(d.string(forKey: codexModel) ?? "luna"))
         case .openai:
             OpenAICompatibleProvider(baseURL: URL(string: d.string(forKey: openAIBaseURL) ?? "") ?? URL(string: "http://localhost:11434/v1")!,
                                      model: d.string(forKey: openAIModel) ?? "", apiKey: Keychain.apiKey)
@@ -143,6 +143,44 @@ enum Prefs {
     static var providerSignature: String {
         [provider, claudeModel, codexModel, openAIBaseURL, openAIModel].map { d.string(forKey: $0) ?? "" }.joined(separator: "|")
             + "|\(Keychain.apiKey?.count ?? 0)"
+    }
+}
+
+/// Claude models are CLI aliases ("haiku" → the newest Haiku), so they update by themselves.
+enum ClaudeModels {
+    static let choices: [(alias: String, es: String, en: String)] = [
+        ("haiku", "Haiku · el más rápido y barato", "Haiku · fastest and cheapest"),
+        ("sonnet", "Sonnet · más cuidadoso, más lento", "Sonnet · more careful, slower"),
+        ("opus", "Opus · el más capaz, gasta mucho más", "Opus · most capable, uses much more"),
+    ]
+}
+
+/// Codex has no aliases, so Inky stores a family ("luna") and picks the newest model of that
+/// family from Codex's own model list (~/.codex/models_cache.json) on every check.
+enum CodexModels {
+    static let choices: [(family: String, es: String, en: String)] = [
+        ("luna", "Luna · rápido y económico", "Luna · fast and affordable"),
+        ("terra", "Terra · equilibrado", "Terra · balanced"),
+        ("sol", "Sol · más capaz, más lento", "Sol · more capable, slower"),
+    ]
+
+    /// "luna" → "gpt-6-luna" (the highest version available). A full model id passes through.
+    static func resolve(_ family: String) -> String {
+        let fam = family.split(separator: "-").last.map(String.init) ?? family   // "gpt-6-luna" → "luna"
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/models_cache.json")
+        guard choices.contains(where: { $0.family == fam }),
+              let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = obj["models"] as? [[String: Any]] else { return family }
+        let slugs = models.compactMap { $0["slug"] as? String ?? $0["id"] as? String }.filter { $0.hasSuffix("-" + fam) }
+        return slugs.max { version($0).lexicographicallyPrecedes(version($1)) } ?? family
+    }
+
+    /// "gpt-6.1-sol" → [6, 1]
+    private static func version(_ slug: String) -> [Int] {
+        let parts = slug.split(separator: "-")
+        guard parts.count >= 3 else { return [] }
+        return parts[1].split(separator: ".").compactMap { Int($0) }
     }
 }
 

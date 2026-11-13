@@ -215,7 +215,7 @@ private struct ProviderPage: View {
                                  : L("No encontrado · instala la CLI `claude`", "Not found · install the `claude` CLI"),
                        hasClaude, recommended: true)
                 option(.codex, "Codex",
-                       hasCodex ? L("Encontrado · GPT-6 Luna · más lento, usa más tokens", "Found · GPT-6 Luna · slower, more tokens")
+                       hasCodex ? L("Encontrado · Luna, la versión más nueva · más lento, usa más tokens", "Found · Luna, newest version · slower, more tokens")
                                 : L("No encontrado · instala la CLI `codex`", "Not found · install the `codex` CLI"),
                        hasCodex)
                 option(.openai, L("API compatible con OpenAI", "OpenAI-compatible API"),

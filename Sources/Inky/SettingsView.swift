@@ -220,7 +220,7 @@ private struct GroupTonePicker: View {
 private struct ProviderTab: View {
     @AppStorage(Prefs.provider) private var provider = ProviderKind.claude.rawValue
     @AppStorage(Prefs.claudeModel) private var claudeModel = "haiku"
-    @AppStorage(Prefs.codexModel) private var codexModel = "gpt-6-luna"
+    @AppStorage(Prefs.codexModel) private var codexModel = "luna"
     @AppStorage(Prefs.openAIBaseURL) private var baseURL = "http://localhost:11434/v1"
     @AppStorage(Prefs.openAIModel) private var openAIModel = "llama3.2"
     @State private var apiKey = Keychain.apiKey ?? ""
@@ -233,9 +233,14 @@ private struct ProviderTab: View {
                 }
                 switch ProviderKind(rawValue: provider) ?? .claude {
                 case .claude:
-                    TextField(L("Modelo", "Model"), text: $claudeModel, prompt: Text("haiku"))
+                    Picker(L("Modelo", "Model"), selection: $claudeModel) {
+                        ForEach(ClaudeModels.choices, id: \.alias) { Text(L($0.es, $0.en)).tag($0.alias) }
+                    }
                 case .codex:
-                    TextField(L("Modelo", "Model"), text: $codexModel, prompt: Text(L("predeterminado", "default")))
+                    Picker(L("Modelo", "Model"), selection: Binding(get: { codexModel.split(separator: "-").last.map(String.init) ?? codexModel },
+                                                                    set: { codexModel = $0 })) {
+                        ForEach(CodexModels.choices, id: \.family) { Text(L($0.es, $0.en)).tag($0.family) }
+                    }
                 case .openai:
                     TextField("Base URL", text: $baseURL)
                     TextField(L("Modelo", "Model"), text: $openAIModel)
@@ -253,9 +258,10 @@ private struct ProviderTab: View {
 
     private var footer: String {
         switch ProviderKind(rawValue: provider) ?? .claude {
-        case .claude: L("Usa tu CLI `claude` con tu propia sesión. Inky nunca toca tus credenciales.",
-                        "Runs your installed `claude` CLI with your own login. Inky never touches your credentials.")
-        case .codex: L("Usa tu CLI `codex`. Más lento (~5 s por revisión).", "Runs your installed `codex` CLI. Slower (~5 s per request).")
+        case .claude: L("Usa tu CLI `claude` con tu sesión, siempre con la versión más nueva del modelo. Inky nunca toca tus credenciales.",
+                        "Runs your `claude` CLI with your login, always on the newest version of the model. Inky never touches your credentials.")
+        case .codex: L("Usa tu CLI `codex` con la versión más nueva de la familia: ahora \(CodexModels.resolve(codexModel)).",
+                       "Runs your `codex` CLI with the newest model of the family: now \(CodexModels.resolve(codexModel)).")
         case .openai: L("Cualquier endpoint compatible con OpenAI: Ollama, LM Studio, OpenAI, OpenRouter.",
                         "Any OpenAI-compatible endpoint: Ollama, LM Studio, OpenAI, OpenRouter.")
         }
