@@ -77,7 +77,7 @@ final class SuggestionCard {
         model.shown = false
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: 300, height: h)), display: true)
         panel.orderFrontRegardless()
-        DispatchQueue.main.async { [model] in withAnimation(Ink.pop) { model.shown = true } }
+        DispatchQueue.main.async { [model] in withAnimation(Ink.open) { model.shown = true } }
     }
 
     func hide() {

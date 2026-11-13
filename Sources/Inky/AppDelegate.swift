@@ -268,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.detectedTone = nil
         model.hovered = nil
         model.applying = false
+        model.focused = 0
         panelRects = [:]
         overlay.hide(forget: true)
         live.handle.model.checking = true   // the drop breathes while the panel waits
@@ -317,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rects = panelRects
         // A beat for the highlights to soak in and the button to turn into a check.
         panel.model.applying = true
-        let beat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.32
+        let beat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.5
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(beat))
             hidePanel(animated: false)
@@ -372,6 +373,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.model.mode = e.modifierFlags.contains(.shift) ? panel.model.mode.previous() : panel.model.mode.next()
             run()
         case kVK_ANSI_E where cmd: panel.model.showExplanations.toggle()
+        case kVK_LeftArrow, kVK_RightArrow:
+            let n = panel.model.edits.count
+            guard n > 1, case .result = panel.model.state else { return false }
+            let step = Int(e.keyCode) == kVK_RightArrow ? 1 : -1
+            panel.model.hovered = nil
+            panel.model.focused = ((panel.model.focused + step) % n + n) % n
         case kVK_ANSI_C where cmd:
             guard let snap = snapshot, case .result = panel.model.state else { return true }
             NSPasteboard.general.clearContents()

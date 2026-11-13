@@ -12,7 +12,10 @@ final class PanelModel: ObservableObject {
     @Published var tone: Tone = .neutral
     @Published var providerName = ""
     @Published var appName = ""
-    @Published var showExplanations = true
+    /// ⌘E: every note at once instead of one at a time.
+    @Published var showExplanations = false
+    /// Which note is shown when they're shown one at a time (← →).
+    @Published var focused = 0
     @Published var language: ExplanationLanguage = .spanish
     @Published var original = ""
     @Published var edits: [PlannedEdit] = []   // relative to `original`
@@ -95,7 +98,10 @@ enum Ink {
 
     /// Springs used everywhere, matching the motion prototype.
     static let pop = Animation.spring(duration: 0.32, bounce: 0.25)
-    static let settle = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.4)
+    static let settle = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.5)
+    /// Opening and closing the panel: slower and with less bounce than small controls.
+    static let open = Animation.spring(duration: 0.5, bounce: 0.14)
+    static let close = Animation.timingCurve(0.4, 0, 0.6, 1, duration: 0.26)
 }
 
 struct PanelView: View {
@@ -115,7 +121,7 @@ struct PanelView: View {
         .frame(width: 460, alignment: .leading)
         .background { background }
         .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.primary.opacity(0.08)) }
-        .scaleEffect(model.shown || reduceMotion ? 1 : 0.6, anchor: model.growsUp ? .bottomLeading : .topLeading)
+        .scaleEffect(model.shown || reduceMotion ? 1 : 0.85, anchor: model.growsUp ? .bottomLeading : .topLeading)
         .opacity(model.shown ? 1 : 0)
         .animation(.smooth(duration: 0.22), value: model.state)
         .animation(Ink.settle, value: model.applying)
@@ -263,9 +269,15 @@ struct PanelView: View {
                 .frame(maxHeight: 200)
                 .fixedSize(horizontal: false, vertical: true)
 
-                toneLine
+                HStack(spacing: 8) {
+                    toneLine
+                    Spacer(minLength: 0)
+                    if !model.showExplanations { stepper }
+                }
 
-                if model.showExplanations {
+                if !model.showExplanations {
+                    focusNote.opacity(model.applying ? 0.35 : 1)
+                } else {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(sortedEdits.enumerated()), id: \.element.range.location) { i, e in
                             note(e).modifier(Rise(delay: 0.12 + Double(i) * 0.08, on: !reduceMotion))
@@ -277,6 +289,49 @@ struct PanelView: View {
             }
             .transition(.opacity)
         }
+    }
+
+    /// The note for the change under the mouse (here or in the field), else the focused one.
+    private var focusIndex: Int {
+        let list = sortedEdits
+        if let h = model.hovered, let i = list.firstIndex(where: { $0.range.location == h }) { return i }
+        return min(max(model.focused, 0), max(list.count - 1, 0))
+    }
+
+    @ViewBuilder private var focusNote: some View {
+        let list = sortedEdits
+        if !list.isEmpty {
+            let e = list[focusIndex]
+            note(e)
+                .id(e.range.location)
+                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 4)), removal: .opacity))
+                .modifier(Rise(delay: 0.15, on: !reduceMotion))
+                .animation(Ink.settle, value: focusIndex)
+        }
+    }
+
+    /// "‹ 2 de 3 ›" to walk through the notes one by one.
+    @ViewBuilder private var stepper: some View {
+        let n = sortedEdits.count
+        if n > 1 {
+            HStack(spacing: 2) {
+                stepButton("chevron.left") { model.focused = (focusIndex - 1 + n) % n; model.hovered = nil }
+                Text(model.t("\(focusIndex + 1) de \(n)", "\(focusIndex + 1) of \(n)"))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .contentTransition(.numericText(value: Double(focusIndex)))
+                stepButton("chevron.right") { model.focused = (focusIndex + 1) % n; model.hovered = nil }
+            }
+            .help(model.t("← → para ver cada cambio · ⌘E todos", "← → to step through · ⌘E all"))
+            .animation(Ink.settle, value: focusIndex)
+        }
+    }
+
+    private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 9, weight: .semibold)).frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private var toneLine: some View {
@@ -507,7 +562,7 @@ final class PanelController {
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
-        if !model.shown { DispatchQueue.main.async { [model] in withAnimation(Ink.pop) { model.shown = true } } }
+        if !model.shown { DispatchQueue.main.async { [model] in withAnimation(Ink.open) { model.shown = true } } }
         Log.info("panel shown at \(panel.frame)")
         if clickMonitor == nil {
             clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -540,8 +595,8 @@ final class PanelController {
         // Shrink back toward the field, then take the window away (unless shown again meanwhile).
         generation += 1
         let g = generation
-        withAnimation(.easeIn(duration: 0.14)) { model.shown = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+        withAnimation(Ink.close) { model.shown = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.27) { [weak self] in
             guard let self, self.generation == g else { return }
             self.panel.orderOut(nil)
         }
