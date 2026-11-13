@@ -208,11 +208,17 @@ private struct ProviderPage: View {
                       subtitle: L("Uso la herramienta que ya tienes instalada, con tu propia sesión. No instalo modelos ni toco tus credenciales.",
                                   "I use the tool you already have installed, with your own login. I don't install models or touch your credentials."))
             VStack(spacing: 8) {
-                option(.claude, L("Claude Code", "Claude Code"), hasClaude ? L("Encontrado · recomendado (rápido y barato con Haiku)", "Found · recommended (fast and cheap with Haiku)")
-                                                                           : L("No encontrado: instala `claude` para usarlo", "Not found: install `claude` to use it"), hasClaude)
-                option(.codex, "Codex", hasCodex ? L("Encontrado · usa gpt-6-luna; más lento (~4 s) y 2–3× más tokens", "Found · uses gpt-6-luna; slower (~4 s), 2–3× more tokens")
-                                                 : L("No encontrado", "Not found"), hasCodex)
-                option(.openai, L("API compatible con OpenAI", "OpenAI-compatible API"), L("Ollama, LM Studio o una API key · se configura en Ajustes", "Ollama, LM Studio or an API key · set up in Settings"), true)
+                // Same shape for all three: where it runs · model · trade-off.
+                option(.claude, "Claude Code",
+                       hasClaude ? L("Encontrado · Claude Haiku · el más rápido y barato", "Found · Claude Haiku · fastest and cheapest")
+                                 : L("No encontrado · instala la CLI `claude`", "Not found · install the `claude` CLI"),
+                       hasClaude, recommended: true)
+                option(.codex, "Codex",
+                       hasCodex ? L("Encontrado · GPT-6 Luna · más lento, usa más tokens", "Found · GPT-6 Luna · slower, more tokens")
+                                : L("No encontrado · instala la CLI `codex`", "Not found · install the `codex` CLI"),
+                       hasCodex)
+                option(.openai, L("API compatible con OpenAI", "OpenAI-compatible API"),
+                       L("Ollama, LM Studio o API key · se configura en Ajustes", "Ollama, LM Studio or API key · set up in Settings"), true)
             }
         }
         .onAppear {
@@ -220,14 +226,22 @@ private struct ProviderPage: View {
         }
     }
 
-    private func option(_ kind: ProviderKind, _ title: String, _ detail: String, _ available: Bool) -> some View {
+    private func option(_ kind: ProviderKind, _ title: String, _ detail: String, _ available: Bool, recommended: Bool = false) -> some View {
         let on = provider == kind.rawValue
         return Button { provider = kind.rawValue } label: {
             HStack(spacing: 12) {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(on ? Ink.ink : .secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 14, weight: .medium))
+                    HStack(spacing: 6) {
+                        Text(title).font(.system(size: 14, weight: .medium))
+                        if recommended && available {
+                            Text(L("Recomendado", "Recommended"))
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(.quaternary.opacity(0.7), in: Capsule())
+                        }
+                    }
                     Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
