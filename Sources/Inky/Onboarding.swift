@@ -19,7 +19,7 @@ final class Onboarding {
             w.titleVisibility = .hidden
             w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
-            w.setContentSize(NSSize(width: 560, height: 640))
+            w.setContentSize(NSSize(width: 560, height: 600))
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -247,80 +247,125 @@ private struct LivePage: View {
     @AppStorage(LiveController.enabledKey) private var enabled = false
     @AppStorage(Prefs.liveScope) private var scope = "list"
     @State private var apps: [String] = UserDefaults.standard.stringArray(forKey: Prefs.liveApps) ?? []
-    @State private var extra: [String] = []
+    @State private var picking = false
 
-    private var choice: Binding<String> {
-        Binding(get: { enabled ? scope : "off" }, set: { v in
-            withAnimation(Ink.settle) {
-                if v == "off" { enabled = false; return }
-                scope = v
-                enabled = true
-            }
-            Metrics.record("live_toggled", ["on": true, "from": "onboarding", "scope": v])
-        })
-    }
+    private var current: String { enabled ? scope : "off" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             PageTitle(title: L("Revisión en vivo", "Live checking"),
-                      subtitle: L("Puedo subrayar errores mientras escribes, sin que pulses nada. Esto es lo que implica:",
-                                  "I can underline mistakes as you type, without pressing anything. Here's what it means:"))
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(LivePrivacy.implications(where: nil), id: \.self) { line in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("•").foregroundStyle(.tertiary)
-                        Text(line).fixedSize(horizontal: false, vertical: true)
+                      subtitle: L("Subrayo errores mientras escribes. Es opcional.", "I underline mistakes as you type. It's optional."))
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(LivePrivacy.essentials(), id: \.text) { row in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: row.symbol).font(.system(size: 13)).foregroundStyle(Ink.ink).frame(width: 16)
+                        Text(row.text).font(.system(size: 12.5)).foregroundStyle(.primary.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
-            .font(.system(size: 11.5)).foregroundStyle(.secondary)
-            Picker("", selection: choice) {
-                Text(L("Apagada", "Off")).tag("off")
-                Text(L("En las apps que elija", "In apps I choose")).tag("list")
-                Text(L("En todas las apps", "In every app")).tag("all")
-            }
-            .pickerStyle(.segmented).labelsHidden()
-            if enabled && scope == "list" {
-                appChips.transition(.opacity.combined(with: .offset(y: -4)))
-            } else {
-                Text(enabled ? L("Excepto terminales, gestores de contraseñas y editores de código. Se ajusta en Ajustes.",
-                                 "Except terminals, password managers and code editors. Adjust it in Settings.")
-                             : L("Puedes encenderla cuando quieras desde la «i» de la barra de menús.",
-                                 "You can turn it on anytime from the «i» in the menu bar."))
-                    .font(.caption).foregroundStyle(.tertiary)
+            VStack(spacing: 6) {
+                ChoiceCard(on: current == "off", title: L("Apagada", "Off"),
+                           detail: Text(L("Solo reviso cuando pulsas tu atajo.", "I only check when you press your shortcut."))) { set("off") }
+                // Clicking it again (or with no apps yet) opens the app picker.
+                ChoiceCard(on: current == "list", title: L("En algunas apps", "In some apps"), detail: appsDetail) {
+                    if current == "list" || apps.isEmpty { picking = true }
+                    set("list")
+                }
+                .popover(isPresented: $picking, arrowEdge: .bottom) {
+                    AppPicker(apps: $apps) { picking = false }
+                }
+                ChoiceCard(on: current == "all", title: L("En todas las apps", "In every app"),
+                           detail: Text(L("Menos contraseñas, terminales y editores de código.", "Except passwords, terminals and code editors."))) { set("all") }
             }
         }
     }
 
-    private var appChips: some View {
-        let candidates = AppInfo.writingApps() + extra.filter { !AppInfo.writingApps().contains($0) }
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 6)], alignment: .leading, spacing: 6) {
-            ForEach(candidates, id: \.self) { id in
-                let on = apps.contains(id)
-                Button { toggle(id) } label: {
-                    HStack(spacing: 6) {
-                        Image(nsImage: AppInfo.icon(id)).resizable().frame(width: 16, height: 16)
-                        Text(AppInfo.name(id) ?? id).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
-                    }
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 8).frame(height: 28)
-                    .background(on ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(on ? 0.3 : 0.1)))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            Button {
-                if let id = AppInfo.choose(), !Prefs.neverLive.contains(id) { extra.append(id); if !apps.contains(id) { toggle(id) } }
-            } label: {
-                Label(L("Otra…", "Other…"), systemImage: "plus").font(.system(size: 12))
-                    .padding(.horizontal, 8).frame(height: 28)
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(0.1), style: StrokeStyle(lineWidth: 1, dash: [3])))
-            }
-            .buttonStyle(.plain)
+    private var appsDetail: Text {
+        let names = apps.compactMap(AppInfo.name)
+        let list: String
+        switch names.count {
+        case 0: list = L("Elige las apps…", "Choose the apps…")
+        case 1...3: list = ListFormatter.localizedString(byJoining: names)
+        default: list = L("\(names[0]), \(names[1]) y \(names.count - 2) más", "\(names[0]), \(names[1]) and \(names.count - 2) more")
         }
+        return Text(list) + Text(" · ") + Text(L("Cambiar…", "Change…")).foregroundColor(.primary).underline()
+    }
+
+    private func set(_ v: String) {
+        withAnimation(Ink.settle) {
+            if v == "off" { enabled = false } else { scope = v; enabled = true }
+        }
+        Metrics.record("live_toggled", ["on": v != "off", "from": "onboarding", "scope": v])
+    }
+}
+
+/// A selectable card with a radio, like the provider choices.
+private struct ChoiceCard: View {
+    var on: Bool
+    var title: String
+    var detail: Text
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: on ? "largecircle.fill.circle" : "circle").foregroundStyle(on ? Ink.ink : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 14, weight: .medium))
+                    detail.font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(on ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(on ? 0.25 : 0.08)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// "¿Dónde reviso?": app chips in two columns, plus Other….
+private struct AppPicker: View {
+    @Binding var apps: [String]
+    var done: () -> Void
+    @State private var extra: [String] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L("¿Dónde reviso?", "Where should I check?")).font(.system(size: 13, weight: .semibold))
+            let candidates = AppInfo.writingApps() + (apps + extra).filter { !AppInfo.writingApps().contains($0) }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                ForEach(Array(Set(candidates)).sorted { (AppInfo.name($0) ?? $0) < (AppInfo.name($1) ?? $1) }, id: \.self) { id in
+                    let on = apps.contains(id)
+                    Button { toggle(id) } label: {
+                        HStack(spacing: 6) {
+                            Image(nsImage: AppInfo.icon(id)).resizable().frame(width: 16, height: 16)
+                            Text(AppInfo.name(id) ?? id).lineLimit(1)
+                            Spacer(minLength: 0)
+                            if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
+                        }
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 8).frame(height: 28)
+                        .background(on ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(on ? 0.3 : 0.1)))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack {
+                Button(L("Otra…", "Other…")) {
+                    if let id = AppInfo.choose(), !Prefs.neverLive.contains(id) { extra.append(id); if !apps.contains(id) { toggle(id) } }
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary).font(.system(size: 12))
+                Spacer()
+                Button(L("Listo", "Done"), action: done).buttonStyle(.borderedProminent).controlSize(.small)
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
     }
 
     private func toggle(_ id: String) {
@@ -339,7 +384,8 @@ private struct ReadyPage: View {
                 Text(L("Revisar texto", "Check text")).font(.system(size: 14))
                 ShortcutRecorder()
             }
-            Label(L("Estoy en la barra de menús, junto al reloj: la «i».", "I live in the menu bar, next to the clock: the «i»."), systemImage: "menubar.arrow.up.rectangle")
+            Label(L("Estoy en la barra de menús, junto al reloj: la «i». Desde ahí enciendes o apagas la revisión en vivo.",
+                    "I live in the menu bar, next to the clock: the «i». Turn live checking on or off from there."), systemImage: "menubar.arrow.up.rectangle")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         }
     }
@@ -472,6 +518,7 @@ private struct LiveHero: View {
                     else { Text("1").font(.system(size: 11, weight: .bold)).foregroundStyle(Ink.onColor) }
                 }
                 .scaleEffect(checking ? 1.1 : 1)
+                .overlay { Circle().strokeBorder(Ink.ink, lineWidth: 1.5).frame(width: 27, height: 27).opacity(checking ? 0 : 0.6) }
             HStack(spacing: 0) {
                 Text("I am ")
                 Text("agree")

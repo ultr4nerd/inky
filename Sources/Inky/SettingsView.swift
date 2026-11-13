@@ -316,6 +316,28 @@ enum LivePrivacy {
     /// `where` nil: generic wording ("the apps you choose"), for before a choice is made.
     static func implications() -> [String] { implications(where: Prefs.liveWhere) }
 
+    /// The two things to know before turning it on (onboarding): what's sent, and what it costs.
+    static func essentials() -> [(symbol: String, text: String)] {
+        let provider = ProviderKind(rawValue: UserDefaults.standard.string(forKey: Prefs.provider) ?? "") ?? .claude
+        let name = provider == .claude ? "Claude" : provider == .codex ? "Codex" : L("tu API", "your API")
+        let cost: String
+        switch provider {
+        case .claude:
+            if let u = Usage.last, u.perRequest > 0 {
+                cost = L("Usa tu suscripción de Claude: cada revisión usa \(UsageReport.approx(u.perRequest)) de tu \(u.windowName).",
+                         "Uses your Claude subscription: each check takes \(UsageReport.approx(u.perRequest)) of your \(u.windowName).")
+            } else {
+                cost = L("Usa tu suscripción de Claude: 100 revisiones ≈ 0.01% del límite semanal.",
+                         "Uses your Claude subscription: 100 checks ≈ 0.01% of the weekly limit.")
+            }
+        case .codex: cost = L("Usa tu límite de Codex, unas 5× más rápido que con Claude.", "Uses your Codex limit, about 5× faster than Claude.")
+        case .openai: cost = L("Tu proveedor cobra cada revisión (1 000–4 000 tokens).", "Your provider bills each check (1,000–4,000 tokens).")
+        }
+        return [("arrow.up.forward.circle", L("Envía lo que escribes a \(name) en cada pausa, sin que pulses nada.",
+                                              "Sends what you type to \(name) at every pause, without pressing anything.")),
+                ("gauge.with.dots.needle.33percent", cost)]
+    }
+
     static func implications(where place: String?) -> [String] {
         let provider = ProviderKind(rawValue: UserDefaults.standard.string(forKey: Prefs.provider) ?? "") ?? .claude
         var cost: String
