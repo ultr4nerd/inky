@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.show()
         }
         if CommandLine.arguments.contains("--demo-panel") { showDemoPanel() }
+        if CommandLine.arguments.contains("--settings") { openSettings() }
         if CommandLine.arguments.contains("--test-underlines") { testUnderlines() }
         // Start `claude` now so the first check is fast.
         if let claude = currentProvider() as? ClaudeCodeProvider {
@@ -207,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow?.center()
         settingsWindow?.makeKeyAndOrderFront(nil)
         settingsWindow?.orderFrontRegardless()
+        Log.info("settings window \(settingsWindow?.frame ?? .zero) visible=\(settingsWindow?.isVisible ?? false)")
     }
 
     /// Debug: underline the first two words of Slack's focused composer for 8 s and log the rects.

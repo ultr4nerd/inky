@@ -31,21 +31,6 @@ enum SettingsWindow {
         return w
     }
 
-    /// Shows the selected tab's name as the window title.
-    private final class TitledTabs: NSTabViewController {
-        override var selectedTabViewItemIndex: Int {
-            didSet { updateTitle() }
-        }
-        override func viewDidAppear() {
-            super.viewDidAppear()
-            updateTitle()
-        }
-        private func updateTitle() {
-            guard tabViewItems.indices.contains(selectedTabViewItemIndex) else { return }
-            view.window?.title = tabViewItems[selectedTabViewItemIndex].label
-        }
-    }
-
     private static func item<V: View>(_ view: V, _ title: String, _ symbol: String) -> NSTabViewItem {
         let host = NSHostingController(rootView: Localized { view }.frame(width: 500))
         host.sizingOptions = .preferredContentSize
@@ -53,6 +38,16 @@ enum SettingsWindow {
         item.label = title
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         return item
+    }
+
+    /// Shows the selected tab's name as the window title.
+    private final class TitledTabs: NSTabViewController {
+        override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
+            super.tabView(tabView, didSelect: item)
+            if let w = view.window, let label = item?.label, w.title != label {
+                DispatchQueue.main.async { w.title = label }   // after the toolbar finishes its own update
+            }
+        }
     }
 }
 
