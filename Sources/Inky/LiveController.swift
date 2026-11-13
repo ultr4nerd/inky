@@ -37,9 +37,48 @@ final class LiveController {
         card.model.onApply = { [weak self] in self?.apply($0) }
         card.model.onIgnore = { [weak self] in self?.ignore($0) }
         overlay.onHover = { [weak self] in self?.hovered($0) }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        // React right away instead of waiting for the next tick: switching apps, clicking
+        // somewhere else, or Slack moving focus (e.g. to a view without a composer).
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                self?.tick()
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                self?.observeFocus(of: app)
+            }
+        }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .keyDown]) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { MainActor.assumeIsolated { self?.tick() } }
+        }
+        observeFocus(of: NSWorkspace.shared.frontmostApplication)
+    }
+
+    private var clickMonitor: Any?
+    private var focusObserver: AXObserver?
+
+    /// AX notification when the focused element changes inside the frontmost app.
+    private func observeFocus(of app: NSRunningApplication?) {
+        if let old = focusObserver {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(old), .defaultMode)
+            focusObserver = nil
+        }
+        guard let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        var observer: AXObserver?
+        let callback: AXObserverCallback = { _, _, _, refcon in
+            guard let refcon else { return }
+            let me = Unmanaged<LiveController>.fromOpaque(refcon).takeUnretainedValue()
+            MainActor.assumeIsolated { me.tick() }
+        }
+        guard AXObserverCreate(app.processIdentifier, callback, &observer) == .success, let observer else { return }
+        let appEl = AXUIElementCreateApplication(app.processIdentifier)
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        AXObserverAddNotification(observer, appEl, kAXFocusedUIElementChangedNotification as CFString, me)
+        AXObserverAddNotification(observer, appEl, kAXFocusedWindowChangedNotification as CFString, me)
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        focusObserver = observer
     }
 
     private func currentProvider() -> Provider {
