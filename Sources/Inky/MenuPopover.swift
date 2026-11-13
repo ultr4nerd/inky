@@ -52,9 +52,12 @@ struct MenuPopoverView: View {
             Divider().padding(.horizontal, 10)
             stats.padding(.horizontal, 14).padding(.vertical, 10)
             Divider().padding(.horizontal, 10)
-            UsageSummary(usage: model.usage, provider: model.provider)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-            Divider().padding(.horizontal, 10)
+            // Only Claude reports subscription limits; for the others there's nothing to show.
+            if model.provider == .claude {
+                UsageSummary(usage: model.usage, provider: model.provider)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                Divider().padding(.horizontal, 10)
+            }
             VStack(spacing: 2) {
                 MenuRow(action: model.onSettings) {
                     Image(systemName: "gearshape").frame(width: 18)
