@@ -113,9 +113,26 @@ enum TextAccess {
             if edit.replacement.isEmpty { pressKey(kVK_Delete) } else { type(edit.replacement) }
             try? await Task.sleep(for: .milliseconds(30))
         }
-        try? await Task.sleep(for: .milliseconds(100))
-        let expected = (snap.fieldText as NSString).replacingCharacters(in: snap.target, with: result)
-        return (attr(el, kAXValueAttribute) as? String) == expected
+        let expected = normalized((snap.fieldText as NSString).replacingCharacters(in: snap.target, with: result))
+        // Slack updates its AX value a little after the keystrokes, and longer texts take longer.
+        for _ in 0..<10 {
+            try? await Task.sleep(for: .milliseconds(100))
+            if let value = attr(el, kAXValueAttribute) as? String, normalized(value) == expected { return true }
+        }
+        let got = (attr(el, kAXValueAttribute) as? String).map(normalized) ?? ""
+        Log.info("verify mismatch: expected \(expected.count) chars, got \(got.count)")
+        return false
+    }
+
+    /// Slack (and macOS) may swap straight quotes for curly ones, use non-breaking spaces,
+    /// or keep a trailing newline. None of that means the fix went wrong.
+    static func normalized(_ s: String) -> String {
+        var t = s
+        for (a, b) in [("\u{2019}", "'"), ("\u{2018}", "'"), ("\u{201C}", "\""), ("\u{201D}", "\""),
+                       ("\u{00A0}", " "), ("\u{202F}", " ")] {
+            t = t.replacingOccurrences(of: a, with: b)
+        }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: Helpers
