@@ -19,8 +19,9 @@ final class LiveController {
     private var provider: Provider?
     private var providerSignature = ""
 
-    /// True while the full panel is open.
-    var suspended = false { didSet { if suspended { clearMarks(); handle.hide() } } }
+    /// True while the full panel is open. The handle stays (it breathes while the panel
+    /// checks), but live underlines and checks pause.
+    var suspended = false { didSet { if suspended { clearMarks() } } }
 
     private var lastValue: String?
     private var lastChange = Date()
@@ -94,7 +95,8 @@ final class LiveController {
     // MARK: Loop
 
     private func tick() {
-        guard !suspended, AXIsProcessTrusted(), let field = TextAccess.focusedField() else {
+        guard !suspended else { return }
+        guard AXIsProcessTrusted(), let field = TextAccess.focusedField() else {
             clearMarks(); handle.hide(); return
         }
         handle.show(for: field.frame)

@@ -205,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// key window right away so no keystroke lands in it.
     private func hidePanel(animated: Bool = true) {
         live.suspended = false
+        live.handle.model.checking = false
         overlay.hide(forget: true)
         panel.hide(animated: animated)
         panel.model.showCustom = false
@@ -259,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.detectedTone = nil
         model.hovered = nil
         overlay.hide(forget: true)
+        live.handle.model.checking = true   // the drop breathes while the panel waits
         let prompt = PromptBuilder(mode: model.mode, tone: model.tone, explanationLanguage: Prefs.explanationLang,
                                    customInstruction: model.customInstruction)
         let masked = MentionMasker.mask(snap.targetText, protected: snap.protected)
@@ -268,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let raw = try await provider.complete(system: PromptBuilder.system, user: prompt.user(masked.text))
                 guard !Task.isCancelled else { return }
+                live.handle.model.checking = false
                 let correction = try CorrectionParser.parse(raw)
                 let edits = EditPlanner.prepare(correction.edits, placeholders: masked.placeholders)
                 model.edits = EditPlanner.plan(text: snap.targetText, edits: edits, protected: snap.protected)
@@ -288,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
+                live.handle.model.checking = false
                 Log.info("provider failed: \(error.localizedDescription)")
                 model.state = .error(error.localizedDescription)
             }
