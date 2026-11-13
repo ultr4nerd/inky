@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKey: HotKey?
     private let panel = PanelController()
     private let overlay = UnderlineOverlay()
+    /// Word positions of the panel's edits in the field, for the ink splash after applying.
+    private var panelRects: [Int: CGRect] = [:]
     private let live = LiveController()
     private var settingsWindow: NSWindow?
 
@@ -25,6 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpMenu()
         hotKey = HotKey { [weak self] in Task { @MainActor in self?.hotKeyPressed() } }
         panel.onKey = { [weak self] in self?.handleKey($0) ?? false }
+        // Clicking anywhere else closes the panel, like a popover.
+        panel.onOutsideClick = { [weak self] in
+            guard let self, !self.panel.model.applying else { return }
+            self.task?.cancel()
+            self.hidePanel()
+        }
         panel.model.onApply = { [weak self] in self?.applyResult() }
         panel.model.onCancel = { [weak self] in self?.close() }
         live.handle.onClick = { [weak self] in self?.hotKeyPressed() }
@@ -259,6 +267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.state = .loading
         model.detectedTone = nil
         model.hovered = nil
+        model.applying = false
+        panelRects = [:]
         overlay.hide(forget: true)
         live.handle.model.checking = true   // the drop breathes while the panel waits
         let prompt = PromptBuilder(mode: model.mode, tone: model.tone, explanationLanguage: Prefs.explanationLang,
@@ -279,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Underline the words in the field itself (word-level modes only).
                 if model.mode.isPrimary, model.mode != .translate, !model.edits.isEmpty {
                     let rects = TextAccess.rects(for: model.edits, in: snap)
+                    panelRects = rects
                     overlay.show(model.edits.compactMap { e in
                         rects[e.range.location].map { (id: e.range.location, axRect: $0, color: Ink.nsColor(e.category)) }
                     })
@@ -299,13 +310,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyResult() {
-        guard let snap = snapshot, case .result = panel.model.state else { return }
+        guard let snap = snapshot, case .result = panel.model.state, !panel.model.applying else { return }
         let edits = panel.model.edits
         let result = EditPlanner.apply(edits, to: snap.targetText)
         let mode = panel.model.mode
-        hidePanel(animated: false)
+        let rects = panelRects
+        // A beat for the highlights to soak in and the button to turn into a check.
+        panel.model.applying = true
+        let beat = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.32
         Task { @MainActor in
+            try? await Task.sleep(for: .seconds(beat))
+            hidePanel(animated: false)
             let ok = await TextAccess.apply(edits, to: snap, result: result)
+            if ok {
+                for (i, e) in edits.sorted(by: { $0.range.location < $1.range.location }).enumerated() {
+                    guard let r = rects[e.range.location] else { continue }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.07) {
+                        UnderlineOverlay.splash(at: r, color: Ink.nsColor(e.category))
+                    }
+                }
+                live.handle.model.flashDone()
+            }
             Log.info("apply \(ok ? "ok" : "mismatch")")
             Metrics.record("panel_applied", ["edits": edits.count, "mode": mode.rawValue, "ok": ok])
             if !ok {
@@ -331,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Returns true when the key was handled.
     private func handleKey(_ e: NSEvent) -> Bool {
+        if panel.model.applying { return true }   // Inky is about to type; swallow keys
         let cmd = e.modifierFlags.contains(.command)
         // While typing a custom instruction, let the text field have the keys (except Esc).
         if panel.model.showCustom {

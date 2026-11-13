@@ -26,6 +26,9 @@ final class PanelModel: ObservableObject {
     @Published var shown = false
     /// The panel sits above the field and grows up from it (from the handle's corner).
     @Published var growsUp = true
+    /// Apply was pressed: the highlights soak in and the button turns into a check,
+    /// a beat before the panel closes and Inky types the changes.
+    @Published var applying = false
 
     var onApply: () -> Void = {}
     var onCancel: () -> Void = {}
@@ -115,6 +118,7 @@ struct PanelView: View {
         .scaleEffect(model.shown || reduceMotion ? 1 : 0.6, anchor: model.growsUp ? .bottomLeading : .topLeading)
         .opacity(model.shown ? 1 : 0)
         .animation(.smooth(duration: 0.22), value: model.state)
+        .animation(Ink.settle, value: model.applying)
         .animation(.smooth(duration: 0.18), value: model.showExplanations)
         .animation(.smooth(duration: 0.18), value: model.showCustom)
         .onChange(of: model.showCustom) { _, show in customFocused = show }
@@ -136,7 +140,6 @@ struct PanelView: View {
                 .foregroundStyle(Ink.paper)
                 .frame(width: 20, height: 20)
                 .background(Ink.ink, in: RoundedRectangle(cornerRadius: 6))
-            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 8)
             modePicker
         }
@@ -177,12 +180,14 @@ struct PanelView: View {
     }
 
     private func pill(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { pillLabel(title, on: on, chevron: false) }.buttonStyle(.plain)
+        Button(action: action) { pillLabel(title, on: on, chevron: false) }
+            .buttonStyle(.plain)
+            .help(model.t("Tab cambia de modo", "Tab switches mode"))
     }
 
     private func pillLabel(_ title: String, on: Bool, chevron: Bool) -> some View {
         HStack(spacing: 3) {
-            Text(title)
+            Text(title).lineLimit(1).fixedSize()
             if chevron { Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)) }
         }
         .font(.caption.weight(on ? .semibold : .regular))
@@ -264,6 +269,7 @@ struct PanelView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(sortedEdits.enumerated()), id: \.element.range.location) { i, e in
                             note(e).modifier(Rise(delay: 0.12 + Double(i) * 0.08, on: !reduceMotion))
+                                .opacity(model.applying ? 0.35 : 1)
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -324,37 +330,36 @@ struct PanelView: View {
 
     // MARK: Footer
 
+    /// Status on the left, actions on the right. Shortcuts live in tooltips and menus.
     private var footer: some View {
         HStack(spacing: 6) {
-            key("⇥"); hint(model.t("modo", "mode"))
-            key("⌘K").padding(.leading, 6); hint(model.t("pedir algo", "ask"))
-            if case .result = model.state {
-                key("⌘E").padding(.leading, 6)
-                hint(model.showExplanations ? model.t("ocultar notas", "hide notes") : model.t("ver notas", "show notes"))
-            }
+            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .contentTransition(.opacity)
             Spacer()
             Button("Esc") { model.onCancel() }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                .help(model.t("Cerrar sin cambios", "Close without changes"))
             if case .result = model.state {
                 Button { model.onApply() } label: {
-                    Text(model.t("Aplicar ↩", "Apply ↩"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Ink.paper)
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(Ink.ink, in: RoundedRectangle(cornerRadius: 8))
+                    HStack(spacing: 4) {
+                        if model.applying {
+                            Image(systemName: "checkmark").font(.caption.weight(.heavy))
+                                .transition(.scale(scale: 0.3).combined(with: .opacity))
+                        }
+                        Text(model.applying ? model.t("Listo", "Done") : model.t("Aplicar ↩", "Apply ↩"))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Ink.paper)
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Ink.ink, in: RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(PressStyle())
+                .help(model.t("Enter aplica · ⌘E oculta las notas", "Enter applies · ⌘E hides notes"))
             }
         }
+        .animation(Ink.pop, value: model.applying)
     }
 
-    private func hint(_ s: String) -> some View { Text(s).font(.caption2).foregroundStyle(.tertiary) }
-
-    private func key(_ k: String) -> some View {
-        Text(k).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.quaternary))
-    }
 
     // MARK: Text
 
@@ -370,7 +375,7 @@ struct PanelView: View {
         for e in sortedEdits {
             out += AttributedString(ns.substring(with: NSRange(location: cursor, length: e.range.location - cursor)))
             var ins = AttributedString(e.replacement)
-            if model.mode.isPrimary {
+            if model.mode.isPrimary && !model.applying {
                 let c = Ink.color(e.category)
                 ins.backgroundColor = c.opacity(model.hovered == e.range.location ? 0.32 : 0.16)
                 ins.underlineStyle = Text.LineStyle(pattern: .solid, color: c)
@@ -437,6 +442,9 @@ final class PanelController {
     private var generation = 0
 
     var onKey: ((NSEvent) -> Bool)?
+    /// A click outside the panel (in another app or another part of the screen).
+    var onOutsideClick: (() -> Void)?
+    private var clickMonitor: Any?
     var isVisible: Bool { panel.isVisible }
 
     init() {
@@ -501,6 +509,14 @@ final class PanelController {
         panel.makeKey()
         if !model.shown { DispatchQueue.main.async { [model] in withAnimation(Ink.pop) { model.shown = true } } }
         Log.info("panel shown at \(panel.frame)")
+        if clickMonitor == nil {
+            clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.panel.isVisible, !self.panel.frame.contains(NSEvent.mouseLocation) else { return }
+                    self.onOutsideClick?()
+                }
+            }
+        }
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.panel.isKeyWindow else { return event }
@@ -512,6 +528,8 @@ final class PanelController {
     func hide(animated: Bool = true) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
         guard panel.isVisible else { return }
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             generation += 1
