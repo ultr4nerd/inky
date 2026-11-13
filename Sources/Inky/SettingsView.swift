@@ -89,13 +89,21 @@ private struct LiveTab: View {
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: Binding(get: { enabled }, set: { on in
+                Toggle(L("Revisión en vivo", "Live checking"), isOn: Binding(get: { enabled }, set: { on in
                     if !on || LivePrivacy.confirm() { LivePrivacy.set(on) }
-                })) {
-                    Text(L("Revisión en vivo en Slack", "Live checking in Slack"))
-                    Text(L("Mientras está encendida, cada oración que escribes se envía a tu proveedor al hacer una pausa. La gota junto al campo lleva un anillo.",
-                           "While it's on, every sentence you type is sent to your provider when you pause. The drop next to the field shows a ring."))
+                }))
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(LivePrivacy.implications(), id: \.self) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("•").foregroundStyle(.tertiary)
+                            Text(line).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Section(L("Dónde", "Where")) {
+                LiveAppsEditor()
             }
             Section(L("Cuándo revisar", "When to check")) {
                 LabeledContent(L("Pausa antes de revisar", "Pause before checking")) {
@@ -298,22 +306,43 @@ struct ShortcutRecorder: View {
 
 @MainActor
 enum LivePrivacy {
+    /// What turning live checking on means, in plain words (Settings, the alert, onboarding).
+    static func implications() -> [String] {
+        let provider = ProviderKind(rawValue: UserDefaults.standard.string(forKey: Prefs.provider) ?? "") ?? .claude
+        var cost: String
+        switch provider {
+        case .claude:
+            if let u = Usage.last, u.perRequest > 0 {
+                cost = L("Consume tu suscripción de Claude: cada revisión usa ≈ \(UsageReport.pct(u.perRequest)) de tu \(u.windowName). Esta semana Inky lleva ≈ \(UsageReport.pct(u.inkyShare)).",
+                         "Uses your Claude subscription: each check takes ≈ \(UsageReport.pct(u.perRequest)) of your \(u.windowName). This week Inky is at ≈ \(UsageReport.pct(u.inkyShare)).")
+            } else {
+                cost = L("Consume tu suscripción de Claude. Con Haiku es poco: unas 100 revisiones suelen ser menos del 0.01% del límite semanal.",
+                         "Uses your Claude subscription. With Haiku it's little: about 100 checks are usually under 0.01% of the weekly limit.")
+            }
+        case .codex:
+            cost = L("Con Codex cada revisión usa ~19 000 tokens: tu límite se gasta unas 5× más rápido que con Claude.",
+                     "With Codex each check uses ~19,000 tokens: your limit runs out about 5× faster than with Claude.")
+        case .openai:
+            cost = L("Tu proveedor cobra cada revisión (unos 1 000–4 000 tokens).", "Your provider bills each check (about 1,000–4,000 tokens).")
+        }
+        return [
+            L("Envía lo que escribes en \(Prefs.liveWhere) a tu proveedor de IA cada vez que haces una pausa, sin pulsar nada.",
+              "Sends what you type in \(Prefs.liveWhere) to your AI provider every time you pause, without pressing anything."),
+            cost,
+            L("Nunca revisa contraseñas, terminales, gestores de contraseñas ni las apps que bloquees.",
+              "Never checks passwords, terminals, password managers or the apps you block."),
+            L("La gota junto al campo lleva un anillo mientras está encendida. Se apaga desde la «i» de la barra de menús.",
+              "The drop next to the field shows a ring while it's on. Turn it off from the «i» in the menu bar."),
+        ]
+    }
+
     /// Asks before turning live checking on: it sends what you type without pressing anything.
     static func confirm() -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = L("¿Encender la revisión en vivo en Slack?", "Turn on live checking in Slack?")
-        alert.informativeText = L("""
-        Mientras esté encendida, cada oración que escribas en Slack se envía a tu proveedor de IA al hacer una pausa, \
-        sin pulsar nada. Revisa que esto esté permitido por las políticas de tu empresa.
-
-        La gota junto al campo de texto lleva un anillo mientras la revisión en vivo está encendida.
-        """, """
-        While it's on, every sentence you type in Slack is sent to your AI provider after you pause, \
-        without pressing anything. Check that this is OK with your company's policies.
-
-        The ink drop next to the text field shows a ring while live checking is on.
-        """)
+        alert.messageText = L("¿Encender la revisión en vivo en \(Prefs.liveWhere)?", "Turn on live checking in \(Prefs.liveWhere)?")
+        alert.informativeText = implications().map { "• " + $0 }.joined(separator: "\n\n")
+            + L("\n\nRevisa que esté permitido por las políticas de tu empresa.", "\n\nCheck that this is OK with your company's policies.")
         alert.addButton(withTitle: L("Encender", "Turn On"))
         alert.addButton(withTitle: L("Cancelar", "Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
@@ -322,5 +351,55 @@ enum LivePrivacy {
     static func set(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: LiveController.enabledKey)
         Metrics.record("live_toggled", ["on": on])
+    }
+}
+
+/// "Only in these apps" / "In every app except", with the list and an Add menu.
+private struct LiveAppsEditor: View {
+    @AppStorage(Prefs.liveScope) private var scope = "list"
+    @State private var apps: [String] = []
+
+    private var key: String { scope == "all" ? Prefs.liveBlocked : Prefs.liveApps }
+
+    var body: some View {
+        Picker("", selection: $scope) {
+            Text(L("Solo en estas apps", "Only in these apps")).tag("list")
+            Text(L("En todas, excepto", "Everywhere except")).tag("all")
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .onChange(of: scope, initial: true) { _, _ in load() }
+
+        ForEach(apps, id: \.self) { id in
+            HStack(spacing: 8) {
+                Image(nsImage: AppInfo.icon(id)).resizable().frame(width: 18, height: 18)
+                Text(AppInfo.name(id) ?? id)
+                Spacer()
+                Button { apps.removeAll { $0 == id }; save() } label: {
+                    Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L("Quitar", "Remove"))
+            }
+        }
+        if apps.isEmpty {
+            Text(scope == "all" ? L("Ninguna app bloqueada.", "No blocked apps.") : L("Ninguna app: la revisión en vivo no correrá.", "No apps: live checking won't run."))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Menu(scope == "all" ? L("Bloquear una app…", "Block an app…") : L("Agregar una app…", "Add an app…")) {
+            ForEach(AppInfo.running().filter { !apps.contains($0.id) && !Prefs.neverLive.contains($0.id) }, id: \.id) { app in
+                Button(app.name) { add(app.id) }
+            }
+            Divider()
+            Button(L("Otra…", "Other…")) { if let id = AppInfo.choose() { add(id) } }
+        }
+        .fixedSize()
+    }
+
+    private func load() { apps = UserDefaults.standard.stringArray(forKey: key) ?? [] }
+    private func save() { UserDefaults.standard.set(apps, forKey: key) }
+    private func add(_ id: String) {
+        guard !apps.contains(id), !Prefs.neverLive.contains(id) else { return }
+        apps.append(id); save()
     }
 }

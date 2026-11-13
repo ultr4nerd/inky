@@ -47,6 +47,19 @@ enum Prefs {
     static let toneMail = "toneMail"
     static let toneOther = "toneOther"
 
+    static let liveScope = "liveScope"          // "list": only liveApps; "all": every app except liveBlocked
+    static let liveApps = "liveApps"
+    static let liveBlocked = "liveBlocked"
+
+    /// Never checked live, whatever the settings: terminals and password managers.
+    static let neverLive: Set<String> = [
+        "dev.ultr4nerd.inky", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty",
+        "dev.warp.Warp-Stable", "net.kovidgoyal.kitty", "io.alacritty", "com.1password.1password",
+        "com.agilebits.onepassword7", "com.bitwarden.desktop", "com.apple.keychainaccess", "com.apple.Passwords",
+    ]
+    /// Blocked by default when live checking is on in every app (code, where corrections don't apply).
+    static let defaultBlocked = ["com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92", "dev.zed.Zed", "com.apple.dt.Xcode"]
+
     static let toneChoices = ["casual-professional", "friendly", "neutral", "formal"]
 
     static func registerDefaults() {
@@ -68,6 +81,9 @@ enum Prefs {
             toneSlack: "casual-professional",
             toneMail: "formal",
             toneOther: "neutral",
+            liveScope: "list",
+            liveApps: ["com.tinyspeck.slackmacgap"],
+            liveBlocked: defaultBlocked,
         ])
     }
 
@@ -88,6 +104,23 @@ enum Prefs {
     static var pause: TimeInterval { max(0.5, d.double(forKey: livePause)) }
     static var categories: [EditCategory] {
         (d.stringArray(forKey: liveCategories) ?? []).compactMap(EditCategory.init(rawValue:))
+    }
+
+    static var liveEverywhere: Bool { d.string(forKey: liveScope) == "all" }
+
+    /// Whether live checking runs in this app (Settings → Live → Where).
+    static func liveAllowed(_ id: String?) -> Bool {
+        guard let id, !neverLive.contains(id) else { return false }
+        return liveEverywhere ? !(d.stringArray(forKey: liveBlocked) ?? []).contains(id)
+                              : (d.stringArray(forKey: liveApps) ?? []).contains(id)
+    }
+
+    /// "Slack", "3 apps", "todas las apps" — for labels.
+    @MainActor static var liveWhere: String {
+        if liveEverywhere { return L("todas las apps", "every app") }
+        let apps = d.stringArray(forKey: liveApps) ?? []
+        if apps.count == 1, let name = AppInfo.name(apps[0]) { return name }
+        return L("\(apps.count) apps", "\(apps.count) apps")
     }
 
     /// Tone for the app the text comes from (Settings → Tone).

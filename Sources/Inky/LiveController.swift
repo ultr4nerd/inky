@@ -8,7 +8,6 @@ import InkyCore
 @MainActor
 final class LiveController {
     nonisolated static let enabledKey = "liveEnabled"
-    static let apps: Set<String> = ["com.tinyspeck.slackmacgap"]
 
     let handle = Handle()
     private let overlay = UnderlineOverlay()
@@ -101,7 +100,7 @@ final class LiveController {
         handle.show(for: field.frame)
         hideCardIfMouseLeft()
 
-        guard enabled, Self.apps.contains(field.app.bundleIdentifier ?? "") else {
+        guard enabled, Prefs.liveAllowed(field.app.bundleIdentifier) else {
             handle.model.liveOn = false
             clearMarks(); return
         }

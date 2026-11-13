@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.hidePanel()
             }
         }
+        Task { _ = await Usage.report() }   // warm the usage estimate for the popover and alerts
         if CommandLine.arguments.contains("--demo-panel") { showDemoPanel() }
         if CommandLine.arguments.contains("--test-underlines") { testUnderlines() }
         // Start `claude` now so the first check is fast.
@@ -127,6 +128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuModel.shortcut = Prefs.shortcut
         menuModel.liveOn = UserDefaults.standard.bool(forKey: LiveController.enabledKey)
         menuModel.refreshStats()
+        menuModel.provider = ProviderKind(rawValue: UserDefaults.standard.string(forKey: Prefs.provider) ?? "") ?? .claude
+        menuModel.usage = Usage.last
+        menuModel.liveWhere = Prefs.liveWhere
+        Task { menuModel.usage = await Usage.report() }
     }
 
     @objc private func togglePopover() {

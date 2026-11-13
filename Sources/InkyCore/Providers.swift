@@ -124,8 +124,12 @@ public actor ClaudeCodeProvider: Provider {
             var it = lines
             defer { lines = it }
             while let raw = try await it?.next() {
-                guard let ev = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any],
-                      ev["type"] as? String == "result" else { continue }
+                guard let ev = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] else { continue }
+                if ev["type"] as? String == "rate_limit_event", let info = ev["rate_limit_info"] as? [String: Any] {
+                    SubscriptionLimits.save(info)
+                    continue
+                }
+                guard ev["type"] as? String == "result" else { continue }
                 if ev["is_error"] as? Bool == true {
                     throw ProviderError.processFailed("Claude: \(ev["result"] as? String ?? "error")")
                 }

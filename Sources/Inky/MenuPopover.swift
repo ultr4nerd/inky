@@ -12,6 +12,9 @@ final class MenuModel: ObservableObject {
     @Published var applied = 0          // fixes applied in the last 7 days (panel + live)
     @Published var liveShown = 0        // live suggestions shown
     @Published var liveApplied = 0
+    @Published var usage: UsageReport?
+    @Published var provider: ProviderKind = .claude
+    @Published var liveWhere = "Slack"
 
     var onCheck: () -> Void = {}
     var onToggleLive: (Bool) -> Void = { _ in }
@@ -48,6 +51,9 @@ struct MenuPopoverView: View {
             .padding(6)
             Divider().padding(.horizontal, 10)
             stats.padding(.horizontal, 14).padding(.vertical, 10)
+            Divider().padding(.horizontal, 10)
+            UsageSummary(usage: model.usage, provider: model.provider)
+                .padding(.horizontal, 14).padding(.vertical, 10)
             Divider().padding(.horizontal, 10)
             VStack(spacing: 2) {
                 MenuRow(action: model.onSettings) {
@@ -93,7 +99,7 @@ struct MenuPopoverView: View {
         } else if !model.hotkeyOK {
             statusLine(L("El atajo \(model.shortcut) está ocupado", "Shortcut \(model.shortcut) is taken"), color: Ink.color(.correctness))
         } else if model.liveOn {
-            statusLine(L("Revisando en vivo en Slack", "Live checking in Slack"), color: Ink.color(.clarity))
+            statusLine(L("Revisando en vivo en \(model.liveWhere)", "Live checking in \(model.liveWhere)"), color: Ink.color(.clarity))
         } else {
             statusLine(L("Listo", "Ready"), color: Ink.color(.engagement))
         }
@@ -110,9 +116,10 @@ struct MenuPopoverView: View {
         HStack(spacing: 8) {
             Image(systemName: "waveform").frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(L("En vivo en Slack", "Live in Slack"))
+                Text(L("En vivo en \(model.liveWhere)", "Live in \(model.liveWhere)"))
                 Text(L("Envía lo que escribes al hacer una pausa", "Sends what you type when you pause"))
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Toggle("", isOn: Binding(get: { model.liveOn }, set: { model.onToggleLive($0) }))
@@ -176,5 +183,66 @@ private struct KeyChip: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+/// "Claude · weekly limit" with a bar: the whole account's usage, and Inky's slice in ink.
+struct UsageSummary: View {
+    var usage: UsageReport?
+    var provider: ProviderKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            switch provider {
+            case .claude:
+                if let u = usage {
+                    HStack {
+                        Text(L("Tu suscripción de Claude", "Your Claude subscription")).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(L("se reinicia \(u.resetText)", "resets \(u.resetText)")).font(.caption).foregroundStyle(.tertiary)
+                    }
+                    bar(total: u.window.utilization, inky: u.inkyShare)
+                    HStack(spacing: 4) {
+                        Text(UsageReport.pct(u.window.utilization)).monospacedDigit().fontWeight(.medium)
+                        Text(L("del \(u.windowName) usado", "of your \(u.windowName) used")).foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    HStack(spacing: 5) {
+                        RoundedRectangle(cornerRadius: 1).fill(Ink.ink).frame(width: 8, height: 8)
+                        Text(L("Inky ≈ \(UsageReport.pct(u.inkyShare)) · \(u.inkyRequests) revisiones",
+                               "Inky ≈ \(UsageReport.pct(u.inkyShare)) · \(u.inkyRequests) checks"))
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                    .help(L("Estimado con el uso de Claude Code en este Mac. Si también usas claude.ai, el número real de Inky es menor.",
+                            "Estimated from Claude Code usage on this Mac. If you also use claude.ai, Inky's real share is lower."))
+                } else {
+                    Text(L("Tu suscripción de Claude", "Your Claude subscription")).font(.caption).foregroundStyle(.secondary)
+                    Text(L("Haz una revisión para ver cuánto de tu límite usa Inky.", "Run a check to see how much of your limit Inky uses."))
+                        .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                }
+            case .codex:
+                Text("Codex").font(.caption).foregroundStyle(.secondary)
+                Text(L("Codex no informa de tus límites. Cada revisión usa ~19 000 tokens, unas 5× más que Claude.",
+                       "Codex doesn't report your limits. Each check uses ~19,000 tokens, about 5× Claude."))
+                    .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            case .openai:
+                Text(L("API compatible con OpenAI", "OpenAI-compatible API")).font(.caption).foregroundStyle(.secondary)
+                Text(L("Se cobra por token según tu proveedor. Inky usa unos 1 000–4 000 tokens por revisión.",
+                       "Billed per token by your provider. Inky uses about 1,000–4,000 tokens per check."))
+                    .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func bar(total: Double, inky: Double) -> some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary)
+                Capsule().fill(.secondary.opacity(0.55)).frame(width: max(2, g.size.width * min(1, total)))
+                Capsule().fill(Ink.ink).frame(width: inky > 0 ? max(3, g.size.width * min(1, inky)) : 0)
+            }
+        }
+        .frame(height: 6)
     }
 }
