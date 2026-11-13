@@ -8,8 +8,12 @@ public struct PromptBuilder: Sendable {
     public var customInstruction: String
     /// Live checking while typing: only clear mistakes, no tone, terse output (faster).
     public var live: Bool
+    /// Live checking: which kinds of suggestions to look for.
+    public var liveCategories: [EditCategory]
 
-    public init(mode: Mode, tone: Tone, explanationLanguage: ExplanationLanguage, customInstruction: String = "", live: Bool = false) {
+    public init(mode: Mode, tone: Tone, explanationLanguage: ExplanationLanguage, customInstruction: String = "", live: Bool = false,
+                liveCategories: [EditCategory] = [.correctness, .clarity]) {
+        self.liveCategories = liveCategories
         self.mode = mode
         self.tone = tone
         self.explanationLanguage = explanationLanguage
@@ -33,10 +37,19 @@ public struct PromptBuilder: Sendable {
     - Each request is independent. Ignore previous messages in this conversation.
     """
 
+    private var liveScope: String {
+        let cats = liveCategories.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
+        let style = liveCategories.contains(.tone) || liveCategories.contains(.engagement)
+        return "Only flag clear mistakes (grammar, spelling, wrong word, unnatural phrasing a native speaker would not use)"
+            + (style ? " and clear style problems" : "")
+            + " with category \(cats)."
+            + (style ? " For \"tone\" use the target tone: \(tone.name)." : " No style or tone suggestions.")
+    }
+
     public func user(_ text: String) -> String {
         if live {
             return """
-            Task: LIVE CHECK while the user types. The text may contain several independent lines; check each. Only flag clear mistakes (grammar, spelling, wrong word, unnatural phrasing a native speaker would not use) with category "correctness" or "clarity". No style or tone suggestions. Omit "tone" and use "" for "corrected".
+            Task: LIVE CHECK while the user types. The text may contain several independent lines; check each. \(liveScope) Omit "tone" and use "" for "corrected".
             Write every "explanation" in \(explanationLanguage.name), max 12 words.
             Text:
             <<<

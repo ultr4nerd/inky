@@ -33,6 +33,17 @@ final class HotKey {
         Log.info("hotkey upgraded to event tap")
     }
 
+    /// Stops listening (before replacing it with a new shortcut).
+    func invalidate() {
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            self.tap = nil
+        }
+        if let carbonRef { UnregisterEventHotKey(carbonRef); self.carbonRef = nil }
+        mechanism = "none"
+    }
+
     private func installTap() -> Bool {
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         let me = Unmanaged.passUnretained(self).toOpaque()

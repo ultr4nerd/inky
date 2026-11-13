@@ -9,7 +9,6 @@ import InkyCore
 final class LiveController {
     nonisolated static let enabledKey = "liveEnabled"
     static let apps: Set<String> = ["com.tinyspeck.slackmacgap"]
-    static let pause: TimeInterval = 1.2
 
     let handle = Handle()
     private let overlay = UnderlineOverlay()
@@ -125,7 +124,7 @@ final class LiveController {
             return
         }
         lastFrame = field.frame
-        guard Date().timeIntervalSince(lastChange) >= Self.pause, renderedValue != field.value,
+        guard Date().timeIntervalSince(lastChange) >= Prefs.pause, renderedValue != field.value,
               !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         render(field)
         checkPending(field)
@@ -151,8 +150,9 @@ final class LiveController {
         inFlight = true
         handle.model.checking = true
         let provider = currentProvider()
-        let prompt = PromptBuilder(mode: .correct, tone: Tone.default(forBundleID: field.app.bundleIdentifier),
-                                   explanationLanguage: Prefs.explanationLang, live: true)
+        let allowed = Prefs.categories
+        let prompt = PromptBuilder(mode: .correct, tone: Prefs.tone(forBundleID: field.app.bundleIdentifier),
+                                   explanationLanguage: Prefs.explanationLang, live: true, liveCategories: allowed)
         // Join the sentences, shifting each one's protected ranges (mentions) into the joined text.
         var joined = ""
         var protected: [NSRange] = []
@@ -172,7 +172,7 @@ final class LiveController {
                 let raw = try await provider.complete(system: PromptBuilder.system, user: prompt.user(masked.text))
                 let c = try CorrectionParser.parse(raw)
                 edits = EditPlanner.prepare(c.edits, placeholders: masked.placeholders)
-                    .filter { $0.kind == .correctness || $0.kind == .clarity }
+                    .filter { allowed.contains($0.kind) }
             } catch {
                 Log.info("live failed: \(error.localizedDescription)")
             }
@@ -200,7 +200,8 @@ final class LiveController {
         var sentenceOf: [Int: String] = [:]
         for s in sentences(field.value) {
             guard let edits = cache[s.key] else { continue }
-            let visible = edits.filter { !ignored.contains("\(s.key)|\($0.original)") }
+            let allowed = Set(Prefs.categories)
+            let visible = edits.filter { !ignored.contains("\(s.key)|\($0.original)") && allowed.contains($0.kind) }
             let protected = snap.protected.compactMap { r -> NSRange? in
                 NSIntersectionRange(r, s.range).length == r.length ? NSRange(location: r.location - s.range.location, length: r.length) : nil
             }
@@ -239,7 +240,7 @@ final class LiveController {
         guard let id, let cur = current, let e = cur.edits.first(where: { $0.range.location == id }),
               let rect = cur.rects[id] else { return }
         if card.shownID != id {
-            card.show(e, fieldText: cur.snap.fieldText, wordRect: rect, language: Prefs.explanationLang)
+            card.show(e, fieldText: cur.snap.fieldText, wordRect: rect, language: Prefs.uiLang)
         }
     }
 

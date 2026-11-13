@@ -24,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Prefs.registerDefaults()
         LoginItem.setUpIfInstalled()
         setUpMenu()
-        hotKey = HotKey { [weak self] in Task { @MainActor in self?.hotKeyPressed() } }
+        installHotKey()
+        NotificationCenter.default.addObserver(forName: .inkyShortcutChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.installHotKey() }
+        }
         panel.onKey = { [weak self] in self?.handleKey($0) ?? false }
         // Clicking anywhere else closes the panel, like a popover.
         panel.onOutsideClick = { [weak self] in
@@ -33,6 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.hidePanel()
         }
         panel.model.onApply = { [weak self] in self?.applyResult() }
+        panel.model.onRetry = { [weak self] in
+            guard let self, self.snapshot != nil else { return }
+            self.run()
+        }
         panel.model.onCancel = { [weak self] in self?.close() }
         live.handle.onClick = { [weak self] in self?.hotKeyPressed() }
         live.start()
@@ -67,53 +74,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The global shortcut from Settings (default ⌃⌥I).
+    private func installHotKey() {
+        hotKey?.invalidate()
+        let d = UserDefaults.standard
+        hotKey = HotKey(keyCode: d.integer(forKey: Prefs.hotkeyCode),
+                        flags: CGEventFlags(rawValue: UInt64(d.integer(forKey: Prefs.hotkeyMods)))) { [weak self] in
+            Task { @MainActor in self?.hotKeyPressed() }
+        }
+    }
+
     // MARK: Menu
+
+    private let menuModel = MenuModel()
+    private lazy var popover: NSPopover = {
+        let p = NSPopover()
+        p.behavior = .transient
+        p.animates = true
+        p.contentViewController = NSHostingController(rootView: MenuPopoverView(model: menuModel))
+        return p
+    }()
+    /// The app that was in front before the popover opened (to give focus back).
+    private var appBeforePopover: NSRunningApplication?
 
     private func setUpMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Brand.glyph
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Check text  (⌃⌥I)", action: #selector(checkFromMenu), keyEquivalent: "").target = self
-        let status = NSMenuItem(title: "", action: #selector(openAccessibilitySettings), keyEquivalent: "")
-        status.target = self
-        status.tag = 99
-        menu.addItem(status)
-        let liveItem = NSMenuItem(title: "Live checking in Slack (sends text as you type)", action: #selector(toggleLive), keyEquivalent: "")
-        liveItem.target = self
-        liveItem.tag = 98
-        menu.addItem(liveItem)
-        menu.addItem(withTitle: "Stats…", action: #selector(showStats), keyEquivalent: "").target = self
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
-        menu.addItem(withTitle: "Quit Inky", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.delegate = self
-        item.menu = menu
+        item.button?.target = self
+        item.button?.action = #selector(togglePopover)
         statusItem = item
+
+        menuModel.onCheck = { [weak self] in
+            guard let self else { return }
+            self.popover.performClose(nil)
+            self.appBeforePopover?.activate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.hotKeyPressed() }
+        }
+        menuModel.onToggleLive = { [weak self] on in
+            if !on || LivePrivacy.confirm() { LivePrivacy.set(on) }
+            self?.refreshMenu()
+        }
+        menuModel.onStats = { [weak self] in self?.popover.performClose(nil); self?.showStats() }
+        menuModel.onSettings = { [weak self] in self?.popover.performClose(nil); self?.openSettings() }
+        menuModel.onGrant = { [weak self] in self?.popover.performClose(nil); self?.openAccessibilitySettings() }
+    }
+
+    private func refreshMenu() {
+        if AXIsProcessTrusted() { hotKey?.retryTapIfNeeded() }
+        menuModel.trusted = AXIsProcessTrusted()
+        menuModel.hotkeyOK = hotKey?.registered == true
+        menuModel.shortcut = Prefs.shortcut
+        menuModel.liveOn = UserDefaults.standard.bool(forKey: LiveController.enabledKey)
+        menuModel.refreshStats()
+    }
+
+    @objc private func togglePopover() {
+        guard let button = statusItem?.button else { return }
+        if popover.isShown { popover.performClose(nil); return }
+        refreshMenu()
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { appBeforePopover = front }
+        NSApp.activate(ignoringOtherApps: true)   // so the transient popover closes on an outside click
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     @objc private func openAccessibilitySettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    }
-
-    @objc private func toggleLive() {
-        let d = UserDefaults.standard
-        let on = d.bool(forKey: LiveController.enabledKey)
-        if !on {
-            NSApp.activate()
-            let alert = NSAlert()
-            alert.messageText = "Turn on live checking in Slack?"
-            alert.informativeText = """
-            While it's on, every sentence you type in Slack is sent to your AI provider (\(currentProvider().displayName)) \
-            after you pause, without pressing anything. Check that this is OK with your company's policies.
-
-            The ink drop next to the text field gets a ring while live checking is on.
-            """
-            alert.addButton(withTitle: "Turn On")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
-        d.set(!on, forKey: LiveController.enabledKey)
-        Metrics.record("live_toggled", ["on": !on])
     }
 
     @objc private func showStats() {
@@ -128,10 +154,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let cost = llm.reduce(0.0) { $0 + ($1["costUSD"] as? Double ?? 0) }
         let out = llm.reduce(0) { $0 + ($1["output"] as? Int ?? 0) }
         let pct = { (a: Int, b: Int) in b == 0 ? "–" : "\(Int((Double(a) / Double(b) * 100).rounded()))%" }
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Inky · last 7 days"
-        alert.informativeText = """
+        alert.messageText = L("Inky · últimos 7 días", "Inky · last 7 days")
+        alert.informativeText = L("""
+        Revisión en vivo
+        • Oraciones revisadas: \(sentences)
+        • Sugerencias: \(suggestions) (aplicadas \(applied), ignoradas \(ignored))
+        • Aplicadas por oración revisada: \(pct(applied, sentences))
+        • Mensajes enviados: \(sent.count), antes de que Inky terminara: \(late) (\(pct(late, sent.count)))
+
+        Uso del modelo
+        • Peticiones: \(llm.count) · tokens de salida: \(out)
+        • Costo reportado por la CLI (equivalente en API): $\(String(format: "%.3f", cost))
+        """, """
         Live checking
         • Sentences checked: \(sentences)
         • Suggestions: \(suggestions) (applied \(applied), dismissed \(ignored))
@@ -141,23 +177,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Model usage
         • Requests: \(llm.count) · output tokens: \(out)
         • Cost reported by the CLI (API-equivalent): $\(String(format: "%.3f", cost))
-        """
+        """)
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Show File")
+        alert.addButton(withTitle: L("Mostrar archivo", "Show File"))
         if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.activateFileViewerSelecting([Metrics.fileURL]) }
     }
-
-    @objc private func checkFromMenu() { hotKeyPressed() }
 
     @objc private func openSettings() {
         if settingsWindow == nil {
             let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
-            w.title = "Inky Settings"
+            w.title = L("Ajustes de Inky", "Inky Settings")
             w.styleMask = [.titled, .closable]
             w.isReleasedWhenClosed = false
             settingsWindow = w
         }
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.center()
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
@@ -196,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.tone = .casualProfessional
         m.providerName = "Claude Haiku"
         m.appName = "Slack"
-        m.language = Prefs.explanationLang
+        m.language = Prefs.uiLang
         let ns = m.original as NSString
         m.edits = [
             PlannedEdit(range: ns.range(of: "this are"), replacement: "This is", explanation: "«this» es singular, así que va con «is». Y la oración empieza con mayúscula.", category: .correctness),
@@ -234,19 +268,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info("hotkey pressed; front=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?") trusted=\(AXIsProcessTrusted()) panelVisible=\(panel.isVisible)")
         guard !panel.isVisible else { return }
         panel.model.applying = false
+        panel.model.canRetry = false
         guard AXIsProcessTrusted() else {
-            panel.model.state = .error("Inky needs Accessibility permission (System Settings → Privacy & Security → Accessibility).")
+            panel.model.state = .error(L("Inky necesita el permiso de Accesibilidad (Ajustes del Sistema → Privacidad y seguridad → Accesibilidad).", "Inky needs Accessibility permission (System Settings → Privacy & Security → Accessibility)."))
             panel.show(anchor: nil)
             return
         }
         panel.model.mode = .correct
-        panel.model.language = Prefs.explanationLang
+        panel.model.language = Prefs.uiLang
         panel.model.appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
         do {
             let snap = try TextAccess.read()
             snapshot = snap
             Log.info("read ok; chars=\(snap.target.length) protected=\(snap.protected.count) clipboard=\(snap.viaClipboard) anchor=\(snap.anchor.map { "\($0)" } ?? "nil")")
-            panel.model.tone = Tone.default(forBundleID: snap.app.bundleIdentifier)
+            panel.model.tone = Prefs.tone(forBundleID: snap.app.bundleIdentifier)
             live.suspended = true
             run()
             panel.show(anchor: snap.anchor)
@@ -305,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 guard !Task.isCancelled else { return }
                 live.handle.model.checking = false
+                model.canRetry = true
                 Log.info("provider failed: \(error.localizedDescription)")
                 model.state = .error(error.localizedDescription)
             }
@@ -339,7 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result, forType: .string)
                 panel.model.applying = false
-                panel.model.state = .error("Couldn't apply cleanly. The corrected text is on your clipboard.")
+                panel.model.state = .error(L("No se pudo aplicar limpio. El texto corregido está en tu portapapeles.", "Couldn't apply cleanly. The corrected text is on your clipboard."))
                 panel.show(anchor: snap.anchor)
             }
             if UserDefaults.standard.bool(forKey: Prefs.historyEnabled) {
@@ -369,7 +405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if cmd, Int(e.keyCode) == kVK_ANSI_K { panel.model.showCustom = true; return true }
         switch Int(e.keyCode) {
         case kVK_Escape: close()
-        case kVK_Return, kVK_ANSI_KeypadEnter: applyResult()
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            if case .error = panel.model.state, panel.model.canRetry { run() } else { applyResult() }
         case kVK_Tab:
             guard snapshot != nil else { return true }
             panel.model.mode = e.modifierFlags.contains(.shift) ? panel.model.mode.previous() : panel.model.mode.next()
@@ -389,19 +426,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default: return false
         }
         return true
-    }
-}
-
-extension AppDelegate: NSMenuDelegate {
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        if AXIsProcessTrusted() { hotKey?.retryTapIfNeeded() }
-        menu.item(withTag: 98)?.state = UserDefaults.standard.bool(forKey: LiveController.enabledKey) ? .on : .off
-        guard let item = menu.item(withTag: 99) else { return }
-        let trusted = AXIsProcessTrusted()
-        let hotkeyOK = hotKey?.registered == true
-        item.title = trusted
-            ? (hotkeyOK ? "✓ Ready" : "⚠︎ Shortcut ⌃⌥I is taken by another app")
-            : "⚠︎ Grant Accessibility permission…"
-        item.isEnabled = !trusted
     }
 }

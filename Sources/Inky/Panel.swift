@@ -34,6 +34,9 @@ final class PanelModel: ObservableObject {
     @Published var applying = false
 
     var onApply: () -> Void = {}
+    var onRetry: () -> Void = {}
+    /// The error came from the provider, so running the check again may work.
+    @Published var canRetry = false
     var onCancel: () -> Void = {}
     var onMode: (Mode) -> Void = { _ in }
     var onHover: (Int?) -> Void = { _ in }
@@ -256,10 +259,12 @@ struct PanelView: View {
             }
             .transition(.opacity)
         case .error(let message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Ink.color(.correctness))
+                Text(message).foregroundStyle(.primary)
+            }
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
         case .result:
             VStack(alignment: .leading, spacing: 12) {
                 ScrollView {
@@ -400,6 +405,15 @@ struct PanelView: View {
             Button("Esc") { model.onCancel() }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
                 .help(model.t("Cerrar sin cambios", "Close without changes"))
+            if case .error = model.state, model.canRetry {
+                Button(action: model.onRetry) {
+                    Text(model.t("Reintentar ↩", "Retry ↩"))
+                        .font(.caption.weight(.semibold)).foregroundStyle(Ink.paper)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(Ink.ink, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(PressStyle())
+            }
             if case .result = model.state {
                 Button { model.onApply() } label: {
                     HStack(spacing: 4) {

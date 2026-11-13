@@ -31,6 +31,8 @@ public enum Mode: String, CaseIterable, Codable, Sendable {
 public enum ExplanationLanguage: String, CaseIterable, Codable, Sendable {
     case english = "en", spanish = "es"
     public var name: String { self == .english ? "English" : "Spanish" }
+    /// The language's own name, for pickers.
+    public var nativeName: String { self == .english ? "English" : "Español" }
 }
 
 public struct Tone: Codable, Equatable, Sendable {

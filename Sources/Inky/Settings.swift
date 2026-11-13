@@ -3,6 +3,19 @@ import InkyCore
 import Security
 import SwiftUI
 
+/// UI string in the interface language (Settings → General).
+func L(_ es: String, _ en: String) -> String { Prefs.uiLang == .spanish ? es : en }
+
+/// Tone names for pickers.
+func toneTitle(_ t: String) -> String {
+    switch t {
+    case "casual-professional": L("Casual profesional", "Casual professional")
+    case "friendly": L("Amigable", "Friendly")
+    case "formal": L("Formal", "Formal")
+    default: L("Neutro", "Neutral")
+    }
+}
+
 enum ProviderKind: String, CaseIterable, Identifiable {
     case claude, codex, openai
     var id: String { rawValue }
@@ -10,7 +23,7 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .claude: "Claude Code"
         case .codex: "Codex"
-        case .openai: "OpenAI-compatible (Ollama, LM Studio, API key)"
+        case .openai: L("Compatible con OpenAI (Ollama, LM Studio, API key)", "OpenAI-compatible (Ollama, LM Studio, API key)")
         }
     }
 }
@@ -24,6 +37,17 @@ enum Prefs {
     static let openAIModel = "openAIModel"
     static let explanationLanguage = "explanationLanguage"
     static let historyEnabled = "historyEnabled"
+    static let uiLanguage = "uiLanguage"
+    static let hotkeyCode = "hotkeyCode"
+    static let hotkeyMods = "hotkeyMods"
+    static let hotkeyLabel = "hotkeyLabel"
+    static let livePause = "livePause"
+    static let liveCategories = "liveCategories"
+    static let toneSlack = "toneSlack"
+    static let toneMail = "toneMail"
+    static let toneOther = "toneOther"
+
+    static let toneChoices = ["casual-professional", "friendly", "neutral", "formal"]
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -35,12 +59,39 @@ enum Prefs {
             explanationLanguage: ExplanationLanguage.spanish.rawValue,
             historyEnabled: false,
             LiveController.enabledKey: false, // opt-in: it sends what you type to the provider
+            uiLanguage: ExplanationLanguage.spanish.rawValue,
+            hotkeyCode: 34,                                    // kVK_ANSI_I
+            hotkeyMods: Int(CGEventFlags([.maskControl, .maskAlternate]).rawValue),
+            hotkeyLabel: "⌃⌥I",
+            livePause: 1.2,
+            liveCategories: ["correctness", "clarity"],
+            toneSlack: "casual-professional",
+            toneMail: "formal",
+            toneOther: "neutral",
         ])
     }
 
     static var d: UserDefaults { .standard }
     static var explanationLang: ExplanationLanguage {
         ExplanationLanguage(rawValue: d.string(forKey: explanationLanguage) ?? "") ?? .spanish
+    }
+
+    static var uiLang: ExplanationLanguage {
+        ExplanationLanguage(rawValue: d.string(forKey: uiLanguage) ?? "") ?? .spanish
+    }
+    static var shortcut: String { d.string(forKey: hotkeyLabel) ?? "⌃⌥I" }
+    static var pause: TimeInterval { max(0.5, d.double(forKey: livePause)) }
+    static var categories: [EditCategory] {
+        (d.stringArray(forKey: liveCategories) ?? []).compactMap(EditCategory.init(rawValue:))
+    }
+
+    /// Tone for the app the text comes from (Settings → Tone).
+    static func tone(forBundleID id: String?) -> Tone {
+        switch id {
+        case "com.tinyspeck.slackmacgap": Tone(d.string(forKey: toneSlack) ?? "casual-professional")
+        case "com.apple.mail", "com.microsoft.Outlook": Tone(d.string(forKey: toneMail) ?? "formal")
+        default: Tone(d.string(forKey: toneOther) ?? "neutral")
+        }
     }
 
     /// Builds the provider for the current settings.
@@ -84,64 +135,3 @@ enum Keychain {
     }
 }
 
-struct SettingsView: View {
-    @AppStorage(Prefs.provider) private var provider = ProviderKind.claude.rawValue
-    @AppStorage(Prefs.claudeModel) private var claudeModel = "haiku"
-    @AppStorage(Prefs.codexModel) private var codexModel = ""
-    @AppStorage(Prefs.openAIBaseURL) private var baseURL = "http://localhost:11434/v1"
-    @AppStorage(Prefs.openAIModel) private var openAIModel = "llama3.2"
-    @AppStorage(Prefs.explanationLanguage) private var language = ExplanationLanguage.spanish.rawValue
-    @AppStorage(Prefs.historyEnabled) private var history = false
-    @State private var apiKey = Keychain.apiKey ?? ""
-    @State private var openAtLogin = LoginItem.isEnabled
-
-    var body: some View {
-        Form {
-            Section("Provider") {
-                Picker("Use", selection: $provider) {
-                    ForEach(ProviderKind.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-                switch ProviderKind(rawValue: provider) ?? .claude {
-                case .claude:
-                    TextField("Model", text: $claudeModel, prompt: Text("haiku"))
-                    Text("Runs your installed `claude` CLI with your own login. Inky never touches your credentials.")
-                        .font(.caption).foregroundStyle(.secondary)
-                case .codex:
-                    TextField("Model", text: $codexModel, prompt: Text("default"))
-                    Text("Runs your installed `codex` CLI. Slower (~5 s per request).")
-                        .font(.caption).foregroundStyle(.secondary)
-                case .openai:
-                    TextField("Base URL", text: $baseURL)
-                    TextField("Model", text: $openAIModel)
-                    SecureField("API key (optional)", text: $apiKey)
-                        .onSubmit { Keychain.apiKey = apiKey }
-                        .onDisappear { Keychain.apiKey = apiKey }
-                }
-            }
-            Section("Explanations") {
-                Picker("Language", selection: $language) {
-                    ForEach(ExplanationLanguage.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
-                }
-            }
-            Section("History") {
-                Toggle("Save corrections locally to review later", isOn: $history)
-                HStack {
-                    Button("Show in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([HistoryStore.fileURL])
-                    }
-                    Button("Clear history", role: .destructive) { HistoryStore.clear() }
-                }
-            }
-            Section("General") {
-                Toggle("Open Inky at login", isOn: $openAtLogin)
-                    .onChange(of: openAtLogin) { _, on in LoginItem.set(on) }
-            }
-            Section("Shortcut") {
-                LabeledContent("Check text", value: "⌃⌥I")
-            }
-        }
-        .formStyle(.grouped)
-        .frame(width: 460)
-        .padding(.vertical, 8)
-    }
-}

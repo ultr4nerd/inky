@@ -24,9 +24,9 @@ enum TextAccessError: LocalizedError {
     case noApp, secureField, noText
     var errorDescription: String? {
         switch self {
-        case .noApp: "No active app."
-        case .secureField: "Inky never reads password fields."
-        case .noText: "Couldn't find text to check. Click into a text field first."
+        case .noApp: L("No hay ninguna app activa.", "No active app.")
+        case .secureField: L("Inky nunca lee campos de contraseña.", "Inky never reads password fields.")
+        case .noText: L("No encontré texto que revisar. Haz clic en un campo de texto primero.", "Couldn't find text to check. Click into a text field first.")
         }
     }
 }
