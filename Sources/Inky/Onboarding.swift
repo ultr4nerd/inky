@@ -19,7 +19,7 @@ final class Onboarding {
             w.titleVisibility = .hidden
             w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
-            w.setContentSize(NSSize(width: 520, height: 470))
+            w.setContentSize(NSSize(width: 560, height: 600))
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -43,19 +43,40 @@ private struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Paper band with a small live demo of the step, under the (transparent) title bar.
             ZStack {
+                Ink.paperTone
+                hero.id(step).transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+            .frame(height: 200)
+            .overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.08)).frame(height: 1) }
+
+            ZStack(alignment: .topLeading) {
                 page.id(step)
-                    .transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
-                                            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
+                    .transition(.asymmetric(insertion: .offset(x: forward ? 24 : -24).combined(with: .opacity),
+                                            removal: .offset(x: forward ? -24 : 24).combined(with: .opacity)))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.horizontal, 36).padding(.top, 44)
-            .clipped()
-            footer.padding(.horizontal, 24).padding(.vertical, 18)
+            .padding(.horizontal, 40).padding(.top, 28)
+
+            Rectangle().fill(.primary.opacity(0.08)).frame(height: 1)
+            footer.padding(.horizontal, 24).frame(height: 64)
         }
-        .frame(width: 520, height: 470)
+        .frame(width: 560)
+        .frame(maxHeight: .infinity)
         .background(.background)
+        .ignoresSafeArea()
         .id(uiLanguage)
+    }
+
+    @ViewBuilder private var hero: some View {
+        switch step {
+        case 0: DemoSentence()
+        case 1: PermissionHero()
+        case 2: ProviderHero()
+        case 3: LiveHero()
+        default: KeysHero()
+        }
     }
 
     @ViewBuilder private var page: some View {
@@ -79,12 +100,12 @@ private struct OnboardingView: View {
             .animation(Ink.pop, value: step)
             Spacer()
             if step > 0 {
-                Button(L("Atrás", "Back")) { go(-1) }.buttonStyle(.plain).foregroundStyle(.secondary).padding(.trailing, 10)
+                Button(L("Atrás", "Back")) { go(-1) }.buttonStyle(.plain).foregroundStyle(.secondary).padding(.trailing, 12)
             }
             Button { step == steps - 1 ? finish() : go(1) } label: {
                 Text(step == steps - 1 ? L("Empezar", "Get started") : L("Siguiente", "Next"))
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(Ink.paper)
-                    .padding(.horizontal, 16).padding(.vertical, 7)
+                    .padding(.horizontal, 18).padding(.vertical, 8)
                     .background(Ink.ink, in: RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(PressStyle())
@@ -105,8 +126,9 @@ private struct PageTitle: View {
     var subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(size: 26, weight: .semibold, design: .serif))
-            Text(subtitle).font(.system(size: 14)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(title).font(.system(size: 24, weight: .semibold, design: .serif))
+            Text(subtitle).font(.system(size: 13.5)).foregroundStyle(.secondary).lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -117,22 +139,28 @@ private struct WelcomePage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Brand.mark(30).foregroundStyle(Ink.paper)
-                .frame(width: 56, height: 56)
-                .background(Ink.ink, in: RoundedRectangle(cornerRadius: 14))
             PageTitle(title: L("Hola, soy Inky", "Hi, I'm Inky"),
                       subtitle: L("Corrijo lo que escribes en cualquier app, te explico cada cambio y uso la IA que ya pagas: sin otra suscripción.",
                                   "I fix what you write in any app, explain every change, and use the AI you already pay for: no extra subscription."))
-            VStack(alignment: .leading, spacing: 10) {
-                Picker(L("Idioma de Inky", "Inky's language"), selection: $uiLanguage) {
-                    ForEach(ExplanationLanguage.allCases, id: \.rawValue) { Text($0.nativeName).tag($0.rawValue) }
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                GridRow {
+                    Text(L("Idioma de Inky", "Inky's language")).foregroundStyle(.secondary)
+                    languagePicker($uiLanguage)
                 }
-                Picker(L("Explicar las correcciones en", "Explain corrections in"), selection: $explanations) {
-                    ForEach(ExplanationLanguage.allCases, id: \.rawValue) { Text($0.nativeName).tag($0.rawValue) }
+                GridRow {
+                    Text(L("Explicaciones en", "Explanations in")).foregroundStyle(.secondary)
+                    languagePicker($explanations)
                 }
             }
-            .frame(maxWidth: 360)
+            .font(.system(size: 13))
         }
+    }
+
+    private func languagePicker(_ value: Binding<String>) -> some View {
+        Picker("", selection: value) {
+            ForEach(ExplanationLanguage.allCases, id: \.rawValue) { Text($0.nativeName).tag($0.rawValue) }
+        }
+        .labelsHidden().pickerStyle(.segmented).frame(width: 180)
     }
 }
 
@@ -228,7 +256,7 @@ private struct LivePage: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             PageTitle(title: L("Revisión en vivo", "Live checking"),
                       subtitle: L("Puedo subrayar errores mientras escribes, sin que pulses nada. Antes de decidir, esto es lo que implica:",
                                   "I can underline mistakes as you type, without pressing anything. Before you decide, here's what it means:"))
@@ -240,7 +268,7 @@ private struct LivePage: View {
                     }
                 }
             }
-            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .font(.system(size: 11.5)).foregroundStyle(.secondary)
             Picker("", selection: choice) {
                 Text(L("Apagada", "Off")).tag("off")
                 Text(L("Solo Slack", "Slack only")).tag("list")
@@ -255,7 +283,7 @@ private struct LivePage: View {
 
 private struct ReadyPage: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 20) {
             PageTitle(title: L("Listo", "All set"),
                       subtitle: L("Escribe en cualquier campo de texto y pulsa tu atajo. Te muestro el texto corregido y por qué cambió cada cosa.",
                                   "Type in any text field and press your shortcut. I'll show the corrected text and why each thing changed."))
@@ -265,6 +293,192 @@ private struct ReadyPage: View {
             }
             Label(L("Estoy en la barra de menús, junto al reloj: la «i».", "I live in the menu bar, next to the clock: the «i»."), systemImage: "menubar.arrow.up.rectangle")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: Heroes (small looping demos on the paper band)
+
+/// "can you ~sent~ send me the file?": the underline draws, then the word is rewritten in ink.
+private struct DemoSentence: View {
+    @State private var drawn: CGFloat = 0
+    @State private var fixed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Brand.mark(22).foregroundStyle(Ink.paper)
+                .frame(width: 44, height: 44)
+                .background(Ink.ink, in: RoundedRectangle(cornerRadius: 11))
+                .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+            HStack(spacing: 0) {
+                Text("can you ")
+                ZStack {
+                    Text("sent").opacity(fixed ? 0 : 1).blur(radius: fixed ? 3 : 0)
+                    Text("send").fontWeight(.semibold).opacity(fixed ? 1 : 0).blur(radius: fixed ? 0 : 3)
+                }
+                .overlay(alignment: .bottom) {
+                    WaveLine().trim(from: 0, to: drawn).stroke(Ink.color(.correctness), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+                        .frame(height: 5).offset(y: 5).opacity(fixed ? 0 : 1)
+                }
+                Text(" me the file?")
+            }
+            .font(.system(size: 24, design: .serif))
+            .foregroundStyle(.primary)
+        }
+        .task { await loop() }
+    }
+
+    private func loop() async {
+        if reduceMotion { drawn = 1; return }
+        while !Task.isCancelled {
+            drawn = 0; fixed = false
+            try? await Task.sleep(for: .seconds(0.8))
+            withAnimation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.6)) { drawn = 1 }
+            try? await Task.sleep(for: .seconds(1.4))
+            withAnimation(Ink.settle) { fixed = true }
+            try? await Task.sleep(for: .seconds(2.2))
+            withAnimation(.easeOut(duration: 0.3)) { fixed = false; drawn = 0 }
+            try? await Task.sleep(for: .seconds(0.5))
+        }
+    }
+}
+
+struct WaveLine: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let y = r.midY
+        p.move(to: CGPoint(x: r.minX, y: y))
+        var x = r.minX, up = true
+        while x < r.maxX {
+            let nx = min(x + 4, r.maxX)
+            p.addQuadCurve(to: CGPoint(x: nx, y: y), control: CGPoint(x: (x + nx) / 2, y: y + (up ? -2.5 : 2.5)))
+            x = nx; up.toggle()
+        }
+        return p
+    }
+}
+
+/// A System Settings-style row whose switch turns on (or shows the real state).
+private struct PermissionHero: View {
+    @State private var on = AXIsProcessTrusted()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Inky").font(.system(size: 14, weight: .medium))
+                Text(L("Accesibilidad", "Accessibility")).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Capsule().fill(on ? Color.accentColor : Color.secondary.opacity(0.3))
+                .frame(width: 38, height: 22)
+                .overlay(alignment: on ? .trailing : .leading) {
+                    Circle().fill(.white).padding(2).shadow(radius: 1, y: 1)
+                }
+        }
+        .padding(14)
+        .frame(width: 300)
+        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        .animation(Ink.pop, value: on)
+        .onReceive(timer) { _ in on = AXIsProcessTrusted() }
+    }
+}
+
+/// Terminal-style chips for the CLIs found on this Mac.
+private struct ProviderHero: View {
+    private let found: [(String, Bool)] = [("claude", CommandResolver.resolve("claude") != nil),
+                                           ("codex", CommandResolver.resolve("codex") != nil)]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(found, id: \.0) { name, ok in
+                HStack(spacing: 10) {
+                    Text("$").foregroundStyle(.tertiary)
+                    Text(name).fontWeight(.medium)
+                    Spacer()
+                    Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle")
+                        .foregroundStyle(ok ? Ink.color(.engagement) : .secondary)
+                }
+                .font(.system(size: 14, design: .monospaced))
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(width: 260)
+                .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.1), radius: 8, y: 3)
+            }
+        }
+    }
+}
+
+/// A tiny composer: the drop breathes, then an underline is drawn under a word.
+private struct LiveHero: View {
+    @State private var checking = false
+    @State private var drawn: CGFloat = 0
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(checking ? Ink.ink : Ink.color(.correctness)).frame(width: 20, height: 20)
+                .overlay {
+                    if checking { Brand.mark(11).foregroundStyle(Ink.paper) }
+                    else { Text("1").font(.system(size: 11, weight: .bold)).foregroundStyle(Ink.onColor) }
+                }
+                .scaleEffect(checking ? 1.1 : 1)
+            HStack(spacing: 0) {
+                Text("I am ")
+                Text("agree")
+                    .overlay(alignment: .bottom) {
+                        WaveLine().trim(from: 0, to: drawn).stroke(Ink.color(.correctness), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                            .frame(height: 5).offset(y: 5)
+                    }
+                Text(" with the plan")
+            }
+            .font(.system(size: 15))
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(width: 280, alignment: .leading)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.primary.opacity(0.1)))
+        }
+        .task {
+            while !Task.isCancelled {
+                drawn = 0
+                withAnimation(.easeInOut(duration: 0.5).repeatCount(3, autoreverses: true)) { checking = true }
+                try? await Task.sleep(for: .seconds(1.6))
+                withAnimation(Ink.pop) { checking = false }
+                withAnimation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.6)) { drawn = 1 }
+                try? await Task.sleep(for: .seconds(2.6))
+            }
+        }
+    }
+}
+
+/// The shortcut as keycaps that press one after another.
+private struct KeysHero: View {
+    @State private var pressed = -1
+    private var keys: [String] { Prefs.shortcut.map(String.init) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { i, k in
+                Text(k)
+                    .font(.system(size: 26, weight: .medium, design: .rounded))
+                    .frame(width: 62, height: 62)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.1)))
+                    .shadow(color: .black.opacity(pressed >= i ? 0.04 : 0.16), radius: pressed >= i ? 1 : 6, y: pressed >= i ? 1 : 4)
+                    .scaleEffect(pressed >= i ? 0.93 : 1)
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                for i in keys.indices {
+                    try? await Task.sleep(for: .seconds(0.35))
+                    withAnimation(Ink.pop) { pressed = i }
+                }
+                try? await Task.sleep(for: .seconds(1.0))
+                withAnimation(Ink.pop) { pressed = -1 }
+                try? await Task.sleep(for: .seconds(0.8))
+            }
         }
     }
 }

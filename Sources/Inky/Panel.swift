@@ -101,6 +101,9 @@ enum Ink {
 
     /// Text on a category-colored fill: white on the light-mode inks, near-black on the
     /// lighter dark-mode inks.
+    /// The paper band behind onboarding heroes: warm paper in light mode, warm charcoal in dark.
+    static let paperTone = Color(nsColor: dynamic((0.957, 0.937, 0.902), (0.135, 0.128, 0.118)))
+
     static let onColor = Color(nsColor: dynamic((1, 1, 1), (0.08, 0.08, 0.08)))
 
     /// Springs used everywhere, matching the motion prototype.
