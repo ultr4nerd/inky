@@ -209,8 +209,8 @@ struct UsageSummary: View {
                     .font(.caption)
                     HStack(spacing: 5) {
                         RoundedRectangle(cornerRadius: 1).fill(Ink.ink).frame(width: 8, height: 8)
-                        Text(L("Inky ≈ \(UsageReport.pct(u.inkyShare)) · \(u.inkyRequests) revisiones",
-                               "Inky ≈ \(UsageReport.pct(u.inkyShare)) · \(u.inkyRequests) checks"))
+                        Text(L("Inky: \(UsageReport.approx(u.inkyShare)) · \(u.inkyRequests) revisiones",
+                               "Inky: \(UsageReport.approx(u.inkyShare)) · \(u.inkyRequests) checks"))
                             .monospacedDigit()
                     }
                     .font(.caption)

@@ -6,6 +6,7 @@ import SwiftUI
 extension Notification.Name {
     /// Posted when the user records a new global shortcut.
     static let inkyShortcutChanged = Notification.Name("inkyShortcutChanged")
+    static let inkyShowOnboarding = Notification.Name("inkyShowOnboarding")
 }
 
 /// The Settings window: native toolbar tabs (like System Settings-era Preferences), each tab
@@ -74,6 +75,11 @@ private struct GeneralTab: View {
                 LabeledContent(L("Revisar texto", "Check text")) { ShortcutRecorder() }
                 Toggle(L("Abrir Inky al iniciar sesión", "Open Inky at login"), isOn: $openAtLogin)
                     .onChange(of: openAtLogin) { _, on in LoginItem.set(on) }
+            }
+            Section {
+                Button(L("Ver la introducción otra vez", "Show the introduction again")) {
+                    NotificationCenter.default.post(name: .inkyShowOnboarding, object: nil)
+                }
             }
         }
         .formStyle(.grouped)
@@ -313,8 +319,8 @@ enum LivePrivacy {
         switch provider {
         case .claude:
             if let u = Usage.last, u.perRequest > 0 {
-                cost = L("Consume tu suscripción de Claude: cada revisión usa ≈ \(UsageReport.pct(u.perRequest)) de tu \(u.windowName). Esta semana Inky lleva ≈ \(UsageReport.pct(u.inkyShare)).",
-                         "Uses your Claude subscription: each check takes ≈ \(UsageReport.pct(u.perRequest)) of your \(u.windowName). This week Inky is at ≈ \(UsageReport.pct(u.inkyShare)).")
+                cost = L("Consume tu suscripción de Claude: cada revisión usa \(UsageReport.approx(u.perRequest)) de tu \(u.windowName). Esta semana Inky lleva \(UsageReport.approx(u.inkyShare)) (\(u.inkyRequests) revisiones).",
+                         "Uses your Claude subscription: each check takes \(UsageReport.approx(u.perRequest)) of your \(u.windowName). This week Inky is at \(UsageReport.approx(u.inkyShare)) (\(u.inkyRequests) checks).")
             } else {
                 cost = L("Consume tu suscripción de Claude. Con Haiku es poco: unas 100 revisiones suelen ser menos del 0.01% del límite semanal.",
                          "Uses your Claude subscription. With Haiku it's little: about 100 checks are usually under 0.01% of the weekly limit.")

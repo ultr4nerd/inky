@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LoginItem.setUpIfInstalled()
         setUpMenu()
         installHotKey()
+        NotificationCenter.default.addObserver(forName: .inkyShowOnboarding, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.settingsWindow?.close(); self?.onboarding.show() }
+        }
         NotificationCenter.default.addObserver(forName: .inkyShortcutChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.installHotKey() }
         }
@@ -68,6 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         Task { _ = await Usage.report() }   // warm the usage estimate for the popover and alerts
+        if !UserDefaults.standard.bool(forKey: Onboarding.doneKey) || CommandLine.arguments.contains("--onboarding") {
+            onboarding.show()
+        }
         if CommandLine.arguments.contains("--demo-panel") { showDemoPanel() }
         if CommandLine.arguments.contains("--test-underlines") { testUnderlines() }
         // Start `claude` now so the first check is fast.
@@ -89,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Menu
 
     private let menuModel = MenuModel()
+    private let onboarding = Onboarding()
     private lazy var popover: NSPopover = {
         let p = NSPopover()
         p.behavior = .transient

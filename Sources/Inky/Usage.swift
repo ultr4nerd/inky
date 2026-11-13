@@ -114,6 +114,12 @@ extension UsageReport {
         return "0%"
     }
 
+    /// "≈ 1.5%" or "menos del 0.01%" for tiny amounts.
+    static func approx(_ x: Double) -> String {
+        let p = pct(x)
+        return p.hasPrefix("<") ? L("menos del 0.01%", "under 0.01%") : "≈ " + p
+    }
+
     var windowName: String {
         window.kind == "five_hour" ? L("límite de 5 horas", "5-hour limit") : L("límite semanal", "weekly limit")
     }
