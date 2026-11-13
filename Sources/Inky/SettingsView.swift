@@ -33,9 +33,16 @@ enum SettingsWindow {
 
     /// Shows the selected tab's name as the window title.
     private final class TitledTabs: NSTabViewController {
-        override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
-            super.tabView(tabView, didSelect: item)
-            view.window?.title = item?.label ?? "Inky"
+        override var selectedTabViewItemIndex: Int {
+            didSet { updateTitle() }
+        }
+        override func viewDidAppear() {
+            super.viewDidAppear()
+            updateTitle()
+        }
+        private func updateTitle() {
+            guard tabViewItems.indices.contains(selectedTabViewItemIndex) else { return }
+            view.window?.title = tabViewItems[selectedTabViewItemIndex].label
         }
     }
 
@@ -160,28 +167,48 @@ private struct LiveTab: View {
 }
 
 private struct ToneTab: View {
-    @AppStorage(Prefs.toneSlack) private var slack = "casual-professional"
-    @AppStorage(Prefs.toneMail) private var mail = "formal"
     @AppStorage(Prefs.toneOther) private var other = "neutral"
 
     var body: some View {
         Form {
             Section {
-                picker("Slack", $slack)
-                picker(L("Mail y Outlook", "Mail and Outlook"), $mail)
-                picker(L("Otras apps", "Other apps"), $other)
+                ForEach(AppInfo.groups(), id: \.key) { g in GroupTonePicker(group: g) }
+                Picker(selection: $other) {
+                    ForEach(Prefs.toneChoices, id: \.self) { Text(toneTitle($0)).tag($0) }
+                } label: {
+                    Text(L("Otras apps", "Other apps"))
+                }
             } footer: {
-                Text(L("El tono que Inky busca al corregir y reescribir en cada app.", "The tone Inky aims for when correcting and rewriting in each app."))
+                Text(L("El tono que Inky busca al corregir y reescribir. Son los mismos grupos de apps que en «En vivo».",
+                       "The tone Inky aims for when correcting and rewriting. Same app groups as in «Live»."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
     }
+}
 
-    private func picker(_ title: String, _ value: Binding<String>) -> some View {
-        Picker(title, selection: value) {
+private struct GroupTonePicker: View {
+    let group: AppInfo.Group
+    @AppStorage private var tone: String
+
+    init(group: AppInfo.Group) {
+        self.group = group
+        _tone = AppStorage(wrappedValue: group.defaultTone, Prefs.toneKey(group.key))
+    }
+
+    var body: some View {
+        Picker(selection: $tone) {
             ForEach(Prefs.toneChoices, id: \.self) { Text(toneTitle($0)).tag($0) }
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(group.title)
+                let names = group.ids.compactMap(AppInfo.name)
+                if !names.isEmpty {
+                    Text(names.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
         }
     }
 }

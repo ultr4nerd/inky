@@ -25,6 +25,7 @@ final class Onboarding {
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()   // an accessory app isn't always allowed to come forward
     }
 
     private func finish() {

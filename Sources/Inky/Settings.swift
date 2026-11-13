@@ -43,8 +43,6 @@ enum Prefs {
     static let hotkeyLabel = "hotkeyLabel"
     static let livePause = "livePause"
     static let liveCategories = "liveCategories"
-    static let toneSlack = "toneSlack"
-    static let toneMail = "toneMail"
     static let toneOther = "toneOther"
 
     static let liveScope = "liveScope"          // "list": only liveApps; "all": every app except liveBlocked
@@ -78,8 +76,6 @@ enum Prefs {
             hotkeyLabel: "⌃⌥I",
             livePause: 1.2,
             liveCategories: ["correctness", "clarity"],
-            toneSlack: "casual-professional",
-            toneMail: "formal",
             toneOther: "neutral",
             liveScope: "list",
             liveApps: MainActor.assumeIsolated { AppInfo.defaultLiveApps() },
@@ -123,13 +119,12 @@ enum Prefs {
         return L("\(apps.count) apps", "\(apps.count) apps")
     }
 
-    /// Tone for the app the text comes from (Settings → Tone).
-    static func tone(forBundleID id: String?) -> Tone {
-        switch id {
-        case "com.tinyspeck.slackmacgap": Tone(d.string(forKey: toneSlack) ?? "casual-professional")
-        case "com.apple.mail", "com.microsoft.Outlook": Tone(d.string(forKey: toneMail) ?? "formal")
-        default: Tone(d.string(forKey: toneOther) ?? "neutral")
-        }
+    static func toneKey(_ group: String) -> String { "tone." + group }
+
+    /// Tone for the app the text comes from: its kind of app (Settings → Tone), else "other apps".
+    @MainActor static func tone(forBundleID id: String?) -> Tone {
+        if let g = AppInfo.group(of: id) { return Tone(d.string(forKey: toneKey(g.key)) ?? g.defaultTone) }
+        return Tone(d.string(forKey: toneOther) ?? "neutral")
     }
 
     /// Builds the provider for the current settings.
