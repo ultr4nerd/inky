@@ -349,26 +349,15 @@ private struct AppPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L("¿Dónde reviso?", "Where should I check?")).font(.system(size: 13, weight: .semibold))
-            let candidates = AppInfo.writingApps() + (apps + extra).filter { !AppInfo.writingApps().contains($0) }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                ForEach(Array(Set(candidates)).sorted { (AppInfo.name($0) ?? $0) < (AppInfo.name($1) ?? $1) }, id: \.self) { id in
-                    let on = apps.contains(id)
-                    Button { toggle(id) } label: {
-                        HStack(spacing: 6) {
-                            Image(nsImage: AppInfo.icon(id)).resizable().frame(width: 16, height: 16)
-                            Text(AppInfo.name(id) ?? id).lineLimit(1)
-                            Spacer(minLength: 0)
-                            if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
-                        }
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 8).frame(height: 28)
-                        .background(on ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(on ? 0.3 : 0.1)))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+            let groups = AppInfo.suggestedGroups()
+            let others = (apps + extra).filter { !AppInfo.writingApps().contains($0) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(groups, id: \.title) { g in section(g.title, note: g.note, ids: g.ids) }
+                    if !others.isEmpty { section(L("Otras", "Others"), note: nil, ids: Array(Set(others)).sorted()) }
                 }
             }
+            .frame(maxHeight: 340)
             HStack {
                 Button(L("Otra…", "Other…")) {
                     if let id = AppInfo.choose(), !Prefs.neverLive.contains(id) { extra.append(id); if !apps.contains(id) { toggle(id) } }
@@ -380,6 +369,36 @@ private struct AppPicker: View {
         }
         .padding(14)
         .frame(width: 300)
+    }
+
+    private func section(_ title: String, note: String?, ids: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(title.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.5).foregroundStyle(.secondary)
+                if let note { Text("· " + note).font(.system(size: 10)).foregroundStyle(Ink.color(.correctness)) }
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                ForEach(ids, id: \.self) { id in chip(id) }
+            }
+        }
+    }
+
+    private func chip(_ id: String) -> some View {
+        let on = apps.contains(id)
+        return Button { toggle(id) } label: {
+            HStack(spacing: 6) {
+                Image(nsImage: AppInfo.icon(id)).resizable().frame(width: 16, height: 16)
+                Text(AppInfo.name(id) ?? id).lineLimit(1)
+                Spacer(minLength: 0)
+                if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 8).frame(height: 28)
+            .background(on ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(on ? 0.3 : 0.1)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func toggle(_ id: String) {

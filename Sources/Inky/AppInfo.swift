@@ -15,12 +15,31 @@ enum AppInfo {
         return NSWorkspace.shared.icon(forFile: url.path)
     }
 
-    /// Common apps people write in, if installed (suggestions for live checking).
-    static func writingApps() -> [String] {
-        ["com.tinyspeck.slackmacgap", "com.apple.mail", "com.apple.MobileSMS", "com.apple.Notes", "com.google.Chrome",
-         "com.apple.Safari", "com.microsoft.teams2", "com.microsoft.Outlook", "net.whatsapp.WhatsApp", "com.hnc.Discord",
-         "notion.id", "com.linear"].filter { url($0) != nil }
+    struct Group { var title: String; var note: String?; var ids: [String] }
+
+    /// Apps people write in, by kind (only the installed ones are shown).
+    static func suggestedGroups() -> [Group] {
+        [Group(title: L("Trabajo", "Work"), note: nil,
+               ids: ["com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.linear", "com.atlassian.jira.mac",
+                     "notion.id", "us.zoom.xos"]),
+         Group(title: L("Correo", "Mail"), note: nil,
+               ids: ["com.apple.mail", "com.microsoft.Outlook", "com.superhuman.electron", "com.readdle.SparkDesktop"]),
+         Group(title: L("Personal", "Personal"), note: nil,
+               ids: ["com.apple.MobileSMS", "net.whatsapp.WhatsApp", "ru.keepcoder.Telegram", "com.hnc.Discord", "com.apple.Notes"]),
+         Group(title: L("Navegadores", "Browsers"), note: L("Revisa todas las webs", "Checks every website"),
+               ids: ["com.google.Chrome", "com.apple.Safari", "company.thebrowser.Browser"])]
+            .map { Group(title: $0.title, note: $0.note, ids: $0.ids.filter { url($0) != nil }) }
+            .filter { !$0.ids.isEmpty }
     }
+
+    /// Work apps turned on by default for live checking (the installed ones).
+    static func defaultLiveApps() -> [String] {
+        ["com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.apple.mail", "com.microsoft.Outlook", "com.linear"]
+            .filter { url($0) != nil }
+    }
+
+    /// All suggested apps, flattened.
+    static func writingApps() -> [String] { suggestedGroups().flatMap(\.ids) }
 
     /// Apps running right now with a window (candidates to add).
     static func running() -> [(id: String, name: String)] {

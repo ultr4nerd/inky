@@ -82,7 +82,7 @@ enum Prefs {
             toneMail: "formal",
             toneOther: "neutral",
             liveScope: "list",
-            liveApps: ["com.tinyspeck.slackmacgap"],
+            liveApps: MainActor.assumeIsolated { AppInfo.defaultLiveApps() },
             liveBlocked: defaultBlocked,
         ])
     }
