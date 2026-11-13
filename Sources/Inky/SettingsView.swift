@@ -8,21 +8,51 @@ extension Notification.Name {
     static let inkyShortcutChanged = Notification.Name("inkyShortcutChanged")
 }
 
-/// Settings, in tabs. Strings follow the interface language and refresh when it changes.
-struct SettingsView: View {
-    @AppStorage(Prefs.uiLanguage) private var uiLanguage = ExplanationLanguage.spanish.rawValue
-
-    var body: some View {
-        TabView {
-            GeneralTab().tabItem { Label(L("General", "General"), systemImage: "gearshape") }
-            LiveTab().tabItem { Label(L("En vivo", "Live"), systemImage: "waveform") }
-            ToneTab().tabItem { Label(L("Tono", "Tone"), systemImage: "text.bubble") }
-            ProviderTab().tabItem { Label(L("Proveedor", "Provider"), systemImage: "cpu") }
-            HistoryTab().tabItem { Label(L("Historial", "History"), systemImage: "clock.arrow.circlepath") }
-        }
-        .frame(width: 500)
-        .id(uiLanguage)   // rebuild every string when the language changes
+/// The Settings window: native toolbar tabs (like System Settings-era Preferences), each tab
+/// a SwiftUI form. The window resizes to each tab.
+@MainActor
+enum SettingsWindow {
+    static func make() -> NSWindow {
+        let tabs = TitledTabs()
+        tabs.tabStyle = .toolbar
+        tabs.tabViewItems = [
+            item(GeneralTab(), L("General", "General"), "gearshape"),
+            item(LiveTab(), L("En vivo", "Live"), "waveform"),
+            item(ToneTab(), L("Tono", "Tone"), "text.bubble"),
+            item(ProviderTab(), L("Proveedor", "Provider"), "cpu"),
+            item(HistoryTab(), L("Historial", "History"), "clock.arrow.circlepath"),
+        ]
+        let w = NSWindow(contentViewController: tabs)
+        w.styleMask = [.titled, .closable]
+        w.toolbarStyle = .preference
+        w.isReleasedWhenClosed = false
+        w.title = tabs.tabViewItems.first?.label ?? "Inky"
+        return w
     }
+
+    /// Shows the selected tab's name as the window title.
+    private final class TitledTabs: NSTabViewController {
+        override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
+            super.tabView(tabView, didSelect: item)
+            view.window?.title = item?.label ?? "Inky"
+        }
+    }
+
+    private static func item<V: View>(_ view: V, _ title: String, _ symbol: String) -> NSTabViewItem {
+        let host = NSHostingController(rootView: Localized { view }.frame(width: 500))
+        host.sizingOptions = .preferredContentSize
+        let item = NSTabViewItem(viewController: host)
+        item.label = title
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        return item
+    }
+}
+
+/// Rebuilds its content when the interface language changes, so every L() string updates.
+private struct Localized<Content: View>: View {
+    @AppStorage(Prefs.uiLanguage) private var uiLanguage = ExplanationLanguage.spanish.rawValue
+    @ViewBuilder var content: Content
+    var body: some View { content.id(uiLanguage) }
 }
 
 private struct GeneralTab: View {

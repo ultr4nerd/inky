@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelRects: [Int: CGRect] = [:]
     private let live = LiveController()
     private var settingsWindow: NSWindow?
+    private var settingsLanguage: ExplanationLanguage?
 
     private var provider: Provider?
     private var providerSignature = ""
@@ -184,12 +185,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        if settingsWindow == nil {
-            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
-            w.title = L("Ajustes de Inky", "Inky Settings")
-            w.styleMask = [.titled, .closable]
-            w.isReleasedWhenClosed = false
-            settingsWindow = w
+        // Rebuilt when the interface language changed (tab labels are AppKit).
+        if settingsWindow == nil || settingsLanguage != Prefs.uiLang {
+            settingsWindow?.close()
+            settingsWindow = SettingsWindow.make()
+            settingsLanguage = Prefs.uiLang
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.center()

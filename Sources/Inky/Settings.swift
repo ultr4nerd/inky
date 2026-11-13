@@ -56,10 +56,10 @@ enum Prefs {
             codexModel: "",
             openAIBaseURL: "http://localhost:11434/v1",
             openAIModel: "llama3.2",
-            explanationLanguage: ExplanationLanguage.spanish.rawValue,
+            explanationLanguage: systemLanguage.rawValue,
             historyEnabled: false,
             LiveController.enabledKey: false, // opt-in: it sends what you type to the provider
-            uiLanguage: ExplanationLanguage.spanish.rawValue,
+            uiLanguage: systemLanguage.rawValue,
             hotkeyCode: 34,                                    // kVK_ANSI_I
             hotkeyMods: Int(CGEventFlags([.maskControl, .maskAlternate]).rawValue),
             hotkeyLabel: "⌃⌥I",
@@ -72,6 +72,11 @@ enum Prefs {
     }
 
     static var d: UserDefaults { .standard }
+
+    /// Spanish if it's the Mac's first language, English otherwise (until chosen in Settings).
+    static var systemLanguage: ExplanationLanguage {
+        (Locale.preferredLanguages.first ?? "en").hasPrefix("es") ? .spanish : .english
+    }
     static var explanationLang: ExplanationLanguage {
         ExplanationLanguage(rawValue: d.string(forKey: explanationLanguage) ?? "") ?? .spanish
     }
