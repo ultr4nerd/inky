@@ -313,7 +313,10 @@ struct ShortcutRecorder: View {
 @MainActor
 enum LivePrivacy {
     /// What turning live checking on means, in plain words (Settings, the alert, onboarding).
-    static func implications() -> [String] {
+    /// `where` nil: generic wording ("the apps you choose"), for before a choice is made.
+    static func implications() -> [String] { implications(where: Prefs.liveWhere) }
+
+    static func implications(where place: String?) -> [String] {
         let provider = ProviderKind(rawValue: UserDefaults.standard.string(forKey: Prefs.provider) ?? "") ?? .claude
         var cost: String
         switch provider {
@@ -332,8 +335,10 @@ enum LivePrivacy {
             cost = L("Tu proveedor cobra cada revisión (unos 1 000–4 000 tokens).", "Your provider bills each check (about 1,000–4,000 tokens).")
         }
         return [
-            L("Envía lo que escribes en \(Prefs.liveWhere) a tu proveedor de IA cada vez que haces una pausa, sin pulsar nada.",
-              "Sends what you type in \(Prefs.liveWhere) to your AI provider every time you pause, without pressing anything."),
+            place.map { p in L("Envía lo que escribes en \(p) a tu proveedor de IA cada vez que haces una pausa, sin pulsar nada.",
+                               "Sends what you type in \(p) to your AI provider every time you pause, without pressing anything.") }
+                ?? L("Envía lo que escribes en las apps que elijas a tu proveedor de IA cada vez que haces una pausa, sin pulsar nada.",
+                     "Sends what you type in the apps you choose to your AI provider every time you pause, without pressing anything."),
             cost,
             L("Nunca revisa contraseñas, terminales, gestores de contraseñas ni las apps que bloquees.",
               "Never checks passwords, terminals, password managers or the apps you block."),

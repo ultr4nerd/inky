@@ -19,7 +19,7 @@ final class Onboarding {
             w.titleVisibility = .hidden
             w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
-            w.setContentSize(NSSize(width: 560, height: 600))
+            w.setContentSize(NSSize(width: 560, height: 640))
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -36,7 +36,9 @@ final class Onboarding {
 
 private struct OnboardingView: View {
     var finish: () -> Void
-    @State private var step = 0
+    /// Debug: `--onboarding-step N` opens on step N.
+    @State private var step = CommandLine.arguments.firstIndex(of: "--onboarding-step")
+        .flatMap { i in CommandLine.arguments.dropFirst(i + 1).first.flatMap(Int.init) } ?? 0
     @State private var forward = true
     @AppStorage(Prefs.uiLanguage) private var uiLanguage = Prefs.systemLanguage.rawValue
     private let steps = 5
@@ -244,24 +246,27 @@ private struct ProviderPage: View {
 private struct LivePage: View {
     @AppStorage(LiveController.enabledKey) private var enabled = false
     @AppStorage(Prefs.liveScope) private var scope = "list"
+    @State private var apps: [String] = UserDefaults.standard.stringArray(forKey: Prefs.liveApps) ?? []
+    @State private var extra: [String] = []
 
     private var choice: Binding<String> {
         Binding(get: { enabled ? scope : "off" }, set: { v in
-            if v == "off" { enabled = false; return }
-            scope = v
-            if v == "list" { UserDefaults.standard.set(["com.tinyspeck.slackmacgap"], forKey: Prefs.liveApps) }
-            enabled = true
-            Metrics.record("live_toggled", ["on": true, "from": "onboarding"])
+            withAnimation(Ink.settle) {
+                if v == "off" { enabled = false; return }
+                scope = v
+                enabled = true
+            }
+            Metrics.record("live_toggled", ["on": true, "from": "onboarding", "scope": v])
         })
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             PageTitle(title: L("Revisión en vivo", "Live checking"),
-                      subtitle: L("Puedo subrayar errores mientras escribes, sin que pulses nada. Antes de decidir, esto es lo que implica:",
-                                  "I can underline mistakes as you type, without pressing anything. Before you decide, here's what it means:"))
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(LivePrivacy.implications(), id: \.self) { line in
+                      subtitle: L("Puedo subrayar errores mientras escribes, sin que pulses nada. Esto es lo que implica:",
+                                  "I can underline mistakes as you type, without pressing anything. Here's what it means:"))
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(LivePrivacy.implications(where: nil), id: \.self) { line in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("•").foregroundStyle(.tertiary)
                         Text(line).fixedSize(horizontal: false, vertical: true)
@@ -271,13 +276,56 @@ private struct LivePage: View {
             .font(.system(size: 11.5)).foregroundStyle(.secondary)
             Picker("", selection: choice) {
                 Text(L("Apagada", "Off")).tag("off")
-                Text(L("Solo Slack", "Slack only")).tag("list")
-                Text(L("Todas las apps", "Every app")).tag("all")
+                Text(L("En las apps que elija", "In apps I choose")).tag("list")
+                Text(L("En todas las apps", "In every app")).tag("all")
             }
-            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
-            Text(L("Se cambia cuando quieras desde la «i» de la barra de menús o en Ajustes.", "Change it anytime from the «i» in the menu bar or in Settings."))
-                .font(.caption).foregroundStyle(.tertiary)
+            .pickerStyle(.segmented).labelsHidden()
+            if enabled && scope == "list" {
+                appChips.transition(.opacity.combined(with: .offset(y: -4)))
+            } else {
+                Text(enabled ? L("Excepto terminales, gestores de contraseñas y editores de código. Se ajusta en Ajustes.",
+                                 "Except terminals, password managers and code editors. Adjust it in Settings.")
+                             : L("Puedes encenderla cuando quieras desde la «i» de la barra de menús.",
+                                 "You can turn it on anytime from the «i» in the menu bar."))
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
         }
+    }
+
+    private var appChips: some View {
+        let candidates = AppInfo.writingApps() + extra.filter { !AppInfo.writingApps().contains($0) }
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 6)], alignment: .leading, spacing: 6) {
+            ForEach(candidates, id: \.self) { id in
+                let on = apps.contains(id)
+                Button { toggle(id) } label: {
+                    HStack(spacing: 6) {
+                        Image(nsImage: AppInfo.icon(id)).resizable().frame(width: 16, height: 16)
+                        Text(AppInfo.name(id) ?? id).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
+                    }
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 8).frame(height: 28)
+                    .background(on ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(on ? 0.3 : 0.1)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                if let id = AppInfo.choose(), !Prefs.neverLive.contains(id) { extra.append(id); if !apps.contains(id) { toggle(id) } }
+            } label: {
+                Label(L("Otra…", "Other…"), systemImage: "plus").font(.system(size: 12))
+                    .padding(.horizontal, 8).frame(height: 28)
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.primary.opacity(0.1), style: StrokeStyle(lineWidth: 1, dash: [3])))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if let i = apps.firstIndex(of: id) { apps.remove(at: i) } else { apps.append(id) }
+        UserDefaults.standard.set(apps, forKey: Prefs.liveApps)
     }
 }
 

@@ -15,6 +15,13 @@ enum AppInfo {
         return NSWorkspace.shared.icon(forFile: url.path)
     }
 
+    /// Common apps people write in, if installed (suggestions for live checking).
+    static func writingApps() -> [String] {
+        ["com.tinyspeck.slackmacgap", "com.apple.mail", "com.apple.MobileSMS", "com.apple.Notes", "com.google.Chrome",
+         "com.apple.Safari", "com.microsoft.teams2", "com.microsoft.Outlook", "net.whatsapp.WhatsApp", "com.hnc.Discord",
+         "notion.id", "com.linear"].filter { url($0) != nil }
+    }
+
     /// Apps running right now with a window (candidates to add).
     static func running() -> [(id: String, name: String)] {
         var seen = Set<String>()

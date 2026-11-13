@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         Task { _ = await Usage.report() }   // warm the usage estimate for the popover and alerts
-        if !UserDefaults.standard.bool(forKey: Onboarding.doneKey) || CommandLine.arguments.contains("--onboarding") {
+        if !UserDefaults.standard.bool(forKey: Onboarding.doneKey) || CommandLine.arguments.contains("--onboarding") || CommandLine.arguments.contains("--onboarding-step") {
             onboarding.show()
         }
         if CommandLine.arguments.contains("--demo-panel") { showDemoPanel() }
